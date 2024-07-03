@@ -4,4 +4,4 @@ version = 3
 name = "bar"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc2f34e570dcd5f9fe32e6863ee16ee73a356d3b77bce0d8c78501b8bc81a860"
+checksum = "c5c6bb785837accc6929456d2c9a1fe5e4198af9fd13dfadc809812a7bd1575e"
