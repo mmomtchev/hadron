@@ -25,7 +25,7 @@ from .mesonlib import (
 from . import mlog
 
 import typing as T
-from typing import ItemsView
+from typing import ItemsView, KeysView
 
 DEFAULT_YIELDING = False
 
