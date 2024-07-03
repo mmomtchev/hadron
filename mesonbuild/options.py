@@ -519,7 +519,7 @@ class OptionStore:
     def __repr__(self):
         return repr(self.d)
 
-    def keys(self):
+    def keys(self) -> KeysView['OptionKey']:
         return self.d.keys()
 
     def values(self):
