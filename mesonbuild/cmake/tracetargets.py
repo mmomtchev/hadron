@@ -77,6 +77,7 @@ def resolve_cmake_trace_targets(target_name: str,
         if curr in processed_targets:
             continue
 
+        # FIXME: This belongs in cmake_resolve_lib
         if curr not in trace.targets:
             curr_path = Path(curr)
             if reg_is_lib.match(curr):
@@ -127,10 +128,10 @@ def resolve_cmake_trace_targets(target_name: str,
             res.public_compile_opts += [x for x in tgt.properties['INTERFACE_COMPILE_OPTIONS'] if x]
 
         if tgt.imported:
-            targets += [x for x in get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace) if x and x in trace.targets]
-            targets += [x for x in get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace) if x and x in trace.targets]
-            res.libraries += [x for x in get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace) if x and x not in trace.targets]
-            res.libraries += [x for x in get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace) if x and x not in trace.targets]
+            # FIXME: Adding these to the targets allows to run the above code,
+            # but the proper solution would be to refactor it to run in cmake_resolve_lib
+            targets += get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace)
+            targets += get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace)
         elif tgt.target:
             # FIXME: mesonbuild/cmake/interpreter.py#363: probably belongs here
             # now that the ConverterTarget and the CMakeTraceTarget are linked
