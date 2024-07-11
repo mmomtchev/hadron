@@ -158,7 +158,7 @@ class NapiModule(ExtensionModule):
         cpp_args = self.construct_swig_options(opts)
         link_args = ['-Wno-emcc', '-Wno-pthreads-mem-growth', '-sALLOW_MEMORY_GROWTH=1',
                      '-sEXPORTED_FUNCTIONS=["_malloc","_free","_napi_register_wasm_v1","_node_api_module_get_api_version_v1"]',
-                     '--bind', f'-sSTACK_SIZE={opts["stack"]}']
+                     '-sEXPORTED_RUNTIME_METHODS=["emnapiInit"]', '--bind', f'-sSTACK_SIZE={opts["stack"]}']
 
         if opts['es6']:
             link_args.extend(['-sMODULARIZE', '-sEXPORT_ES6=1', f'-sEXPORT_NAME={name}'])
