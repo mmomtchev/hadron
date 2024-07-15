@@ -49,11 +49,13 @@ _MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in {'name_prefix', 'name_
 
 # These are the defauls
 node_api_defaults: 'NodeAPIOptions' = {
-    'async_pool':       4,
-    'es6':              True,
-    'stack':            '2MB',
-    'swig':             False,
-    'environments':     ['node', 'web', 'webview', 'worker']
+    'async_pool':               4,
+    'es6':                      True,
+    'stack':                    '2MB',
+    'swig':                     False,
+    'environments':             ['node', 'web', 'webview', 'worker'],
+    'exported_functions':       ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1'],
+    'exported_runtime_methods': ['emnapiInit']
 }
 _NODE_API_OPTS_KW = KwargInfo('node_api_options', dict, default=node_api_defaults)
 
@@ -157,11 +159,14 @@ class NapiModule(ExtensionModule):
         c_args = []
         cpp_args = self.construct_swig_options(opts)
         link_args = ['-Wno-emcc', '-Wno-pthreads-mem-growth', '-sALLOW_MEMORY_GROWTH=1',
-                     '-sEXPORTED_FUNCTIONS=["_malloc","_free","_napi_register_wasm_v1","_node_api_module_get_api_version_v1"]',
-                     '-sEXPORTED_RUNTIME_METHODS=["emnapiInit"]', '--bind', f'-sSTACK_SIZE={opts["stack"]}']
-
+                     '--bind', f'-sSTACK_SIZE={opts["stack"]}']
+        exported_functions = ','.join([f'"{f}"' for f in opts['exported_functions']])
+        exported_runtime_methods = ','.join([f'"{f}"' for f in opts['exported_runtime_methods']])
+        link_args.append(f'-sEXPORTED_FUNCTIONS=[{exported_functions}]')
+        link_args.append(f'-sEXPORTED_RUNTIME_METHODS=[{exported_runtime_methods}]')
         if opts['es6']:
             link_args.extend(['-sMODULARIZE', '-sEXPORT_ES6=1', f'-sEXPORT_NAME={name}'])
+
         # emscripten cannot link code compiled with -pthread with code compiled without it
         build_opts = self.interpreter.environment.coredata.optstore
         c_thread_count: int = build_opts.get_value(mesonlib.OptionKey('thread_count', lang='c'))
