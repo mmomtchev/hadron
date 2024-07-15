@@ -30,11 +30,13 @@ if T.TYPE_CHECKING:
     SourcesVarargsType = T.List[T.Union[str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget]]
 
     class NodeAPIOptions(TypedDict):
-        async_pool:     int
-        es6:            bool
-        stack:          str
-        swig:           bool
-        environments:   T.List[str]
+        async_pool:                 int
+        es6:                        bool
+        stack:                      str
+        swig:                       bool
+        environments:               T.List[str]
+        exported_functions:         T.List[str]
+        exported_runtime_methods:   T.List[str]
 
 name_prefix = ''
 name_suffix_native = 'node'
