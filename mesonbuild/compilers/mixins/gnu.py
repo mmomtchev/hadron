@@ -403,7 +403,7 @@ class GnuLikeCompiler(Compiler, metaclass=abc.ABCMeta):
         return gnulike_default_include_dirs(tuple(self.get_exelist(ccache=False)), self.language).copy()
 
     def is_custom_sysroot(self, args: 'CompilerArgs') -> bool:
-        return any([x.startswith('-isysroot') or x.startswith('-sysroot') for x in args])
+        return any(x.startswith('-isysroot') or x.startswith('-sysroot') for x in args)
 
     @abc.abstractmethod
     def openmp_flags(self, env: Environment) -> T.List[str]:
