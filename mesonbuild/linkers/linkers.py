@@ -1340,9 +1340,6 @@ class VisualStudioLikeLinkerMixin(DynamicLinkerBase):
     def get_pie_args(self) -> T.List[str]:
         return []
 
-    def get_pie_args(self) -> T.List[str]:
-        return []
-
 
 class MSVCDynamicLinker(VisualStudioLikeLinkerMixin, DynamicLinker):
 
