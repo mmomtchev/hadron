@@ -275,6 +275,32 @@ def detect_clangformat() -> T.List[str]:
             return [path]
     return []
 
+def detect_clangtidy() -> T.List[str]:
+    """ Look for clang-tidy binary on build platform
+
+    Return: a single-element list of the found clang-tidy binary ready to be
+        passed to Popen()
+    """
+    tools = get_llvm_tool_names('clang-tidy')
+    for tool in tools:
+        path = shutil.which(tool)
+        if path is not None:
+            return [path]
+    return []
+
+def detect_clangapply() -> T.List[str]:
+    """ Look for clang-apply-replacements binary on build platform
+
+    Return: a single-element list of the found clang-apply-replacements binary
+        ready to be passed to Popen()
+    """
+    tools = get_llvm_tool_names('clang-apply-replacements')
+    for tool in tools:
+        path = shutil.which(tool)
+        if path is not None:
+            return [path]
+    return []
+
 def detect_windows_arch(compilers: CompilersDict) -> str:
     """
     Detecting the 'native' architecture of Windows is not a trivial task. We
@@ -309,7 +335,7 @@ def detect_windows_arch(compilers: CompilersDict) -> str:
     for compiler in compilers.values():
         if compiler.id == 'msvc' and (compiler.target in {'x86', '80x86'}):
             return 'x86'
-        if compiler.id == 'clang-cl' and compiler.target == 'x86':
+        if compiler.id == 'clang-cl' and (compiler.target in {'x86', 'i686'}):
             return 'x86'
         if compiler.id == 'gcc' and compiler.has_builtin_define('__i386__'):
             return 'x86'
@@ -329,7 +355,7 @@ def detect_cpu_family(compilers: CompilersDict) -> str:
     """
     Python is inconsistent in its platform module.
     It returns different values for the same cpu.
-    For x86 it might return 'x86', 'i686' or somesuch.
+    For x86 it might return 'x86', 'i686' or some such.
     Do some canonicalization.
     """
     if mesonlib.is_windows():
@@ -466,7 +492,7 @@ def detect_kernel(system: str) -> T.Optional[str]:
             raise MesonException('Failed to run "/usr/bin/uname -o"')
         out = out.lower().strip()
         if out not in {'illumos', 'solaris'}:
-            mlog.warning(f'Got an unexpected value for kernel on a SunOS derived platform, expcted either "illumos" or "solaris", but got "{out}".'
+            mlog.warning(f'Got an unexpected value for kernel on a SunOS derived platform, expected either "illumos" or "solaris", but got "{out}".'
                          "Please open a Meson issue with the OS you're running and the value detected for your kernel.")
             return None
         return out
@@ -696,7 +722,7 @@ class Environment:
                     key = OptionKey.from_string(k)
                     # If we're in the cross file, and there is a `build.foo` warn about that. Later we'll remove it.
                     if machine is MachineChoice.HOST and key.machine is not machine:
-                        mlog.deprecation('Setting build machine options in cross files, please use a native file instead, this will be removed in meson 0.60', once=True)
+                        mlog.deprecation('Setting build machine options in cross files, please use a native file instead, this will be removed in meson 2.0', once=True)
                     if key.subproject:
                         raise MesonException('Do not set subproject options in [built-in options] section, use [subproject:built-in options] instead.')
                     self.options[key.evolve(subproject=subproject, machine=machine)] = v

@@ -41,6 +41,10 @@ if T.TYPE_CHECKING:
 
         separator: str
 
+    class InternalDependencyAsKW(TypedDict):
+
+        recursive: bool
+
 _ERROR_MSG_KW: KwargInfo[T.Optional[str]] = KwargInfo('error_message', (str, NoneType))
 
 
@@ -462,6 +466,8 @@ class DependencyHolder(ObjectHolder[Dependency]):
                              'include_type': self.include_type_method,
                              'as_system': self.as_system_method,
                              'as_link_whole': self.as_link_whole_method,
+                             'as_static': self.as_static_method,
+                             'as_shared': self.as_shared_method,
                              })
 
     def found(self) -> bool:
@@ -539,6 +545,7 @@ class DependencyHolder(ObjectHolder[Dependency]):
         KwargInfo('pkgconfig', (str, NoneType)),
         KwargInfo('configtool', (str, NoneType)),
         KwargInfo('internal', (str, NoneType), since='0.54.0'),
+        KwargInfo('system', (str, NoneType), since='1.6.0'),
         KwargInfo('default_value', (str, NoneType)),
         PKGCONFIG_DEFINE_KW,
     )
@@ -555,6 +562,7 @@ class DependencyHolder(ObjectHolder[Dependency]):
             pkgconfig=kwargs['pkgconfig'] or default_varname,
             configtool=kwargs['configtool'] or default_varname,
             internal=kwargs['internal'] or default_varname,
+            system=kwargs['system'] or default_varname,
             default_value=kwargs['default_value'],
             pkgconfig_define=kwargs['pkgconfig_define'],
         )
@@ -579,6 +587,28 @@ class DependencyHolder(ObjectHolder[Dependency]):
             raise InterpreterException('as_link_whole method is only supported on declare_dependency() objects')
         new_dep = self.held_object.generate_link_whole_dependency()
         return new_dep
+
+    @FeatureNew('dependency.as_static', '1.6.0')
+    @noPosargs
+    @typed_kwargs(
+        'dependency.as_static',
+        KwargInfo('recursive', bool, default=False),
+    )
+    def as_static_method(self, args: T.List[TYPE_var], kwargs: InternalDependencyAsKW) -> Dependency:
+        if not isinstance(self.held_object, InternalDependency):
+            raise InterpreterException('as_static method is only supported on declare_dependency() objects')
+        return self.held_object.get_as_static(kwargs['recursive'])
+
+    @FeatureNew('dependency.as_shared', '1.6.0')
+    @noPosargs
+    @typed_kwargs(
+        'dependency.as_shared',
+        KwargInfo('recursive', bool, default=False),
+    )
+    def as_shared_method(self, args: T.List[TYPE_var], kwargs: InternalDependencyAsKW) -> Dependency:
+        if not isinstance(self.held_object, InternalDependency):
+            raise InterpreterException('as_shared method is only supported on declare_dependency() objects')
+        return self.held_object.get_as_shared(kwargs['recursive'])
 
 _EXTPROG = T.TypeVar('_EXTPROG', bound=ExternalProgram)
 
@@ -753,7 +783,7 @@ class Test(MesonInterpreterObject):
                  exe: T.Union[ExternalProgram, build.Executable, build.CustomTarget, build.CustomTargetIndex],
                  depends: T.List[T.Union[build.CustomTarget, build.BuildTarget]],
                  is_parallel: bool,
-                 cmd_args: T.List[T.Union[str, mesonlib.File, build.Target]],
+                 cmd_args: T.List[T.Union[str, mesonlib.File, build.Target, ExternalProgram]],
                  env: mesonlib.EnvironmentVariables,
                  should_fail: bool, timeout: int, workdir: T.Optional[str], protocol: str,
                  priority: int, verbose: bool):
@@ -942,7 +972,7 @@ class BuildTargetHolder(ObjectHolder[_BuildTarget]):
                 extract_all_objects called without setting recursive
                 keyword argument. Meson currently defaults to
                 non-recursive to maintain backward compatibility but
-                the default will be changed in the future.
+                the default will be changed in meson 2.0.
             ''')
         )
     )

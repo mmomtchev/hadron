@@ -31,7 +31,7 @@ from ..interpreterbase import InterpreterException, InvalidArguments, InvalidCod
 from ..interpreterbase import Disabler, disablerIfNotFound
 from ..interpreterbase import FeatureNew, FeatureDeprecated, FeatureBroken, FeatureNewKwargs
 from ..interpreterbase import ObjectHolder, ContextManagerObject
-from ..interpreterbase import stringifyUserArguments
+from ..interpreterbase import stringifyUserArguments, resolve_second_level_holders
 from ..modules import ExtensionModule, ModuleObject, MutableModuleObject, NewExtensionModule, NotFoundExtensionModule
 from ..optinterpreter import optname_regex
 
@@ -256,7 +256,7 @@ permitted_dependency_kwargs = {
 
 implicit_check_false_warning = """You should add the boolean check kwarg to the run_command call.
          It currently defaults to false,
-         but it will default to true in future releases of meson.
+         but it will default to true in meson 2.0.
          See also: https://github.com/mesonbuild/meson/issues/9300"""
 class Interpreter(InterpreterBase, HoldableObject):
 
@@ -636,7 +636,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             ext_module = NotFoundExtensionModule(real_modname)
         else:
             ext_module = module.initialize(self)
-            assert isinstance(ext_module, (ExtensionModule, NewExtensionModule))
+            assert isinstance(ext_module, (ExtensionModule, NewExtensionModule)), 'for mypy'
             self.build.modules.append(real_modname)
         if ext_module.INFO.added:
             FeatureNew.single_use(f'module {ext_module.INFO.name}', ext_module.INFO.added, self.subproject, location=node)
@@ -690,6 +690,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         KwargInfo('version', (str, NoneType)),
         KwargInfo('objects', ContainerTypeInfo(list, build.ExtractedObjects), listify=True, default=[], since='1.1.0'),
     )
+    @noSecondLevelHolderResolving
     def func_declare_dependency(self, node: mparser.BaseNode, args: T.List[TYPE_var],
                                 kwargs: kwtypes.FuncDeclareDependency) -> dependencies.Dependency:
         deps = kwargs['dependencies']
@@ -877,6 +878,7 @@ class Interpreter(InterpreterBase, HoldableObject):
     def do_subproject(self, subp_name: str, kwargs: kwtypes.DoSubproject, force_method: T.Optional[wrap.Method] = None) -> SubprojectHolder:
         disabled, required, feature = extract_required_kwarg(kwargs, self.subproject)
         if disabled:
+            assert feature, 'for mypy'
             mlog.log('Subproject', mlog.bold(subp_name), ':', 'skipped: feature', mlog.bold(feature), 'disabled')
             return self.disabled_subproject(subp_name, disabled_feature=feature)
 
@@ -1177,6 +1179,8 @@ class Interpreter(InterpreterBase, HoldableObject):
         # for things like deprecation testing.
         if kwargs['meson_version']:
             self.handle_meson_version(kwargs['meson_version'], node)
+        else:
+            mesonlib.project_meson_versions[self.subproject] = mesonlib.NoProjectVersion()
 
         # Load "meson.options" before "meson_options.txt", and produce a warning if
         # it is being used with an old version. I have added check that if both
@@ -1234,6 +1238,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         self.active_projectname = proj_name
 
         version = kwargs['version']
+        assert version is not None, 'for mypy'
         if isinstance(version, mesonlib.File):
             FeatureNew.single_use('version from file', '0.57.0', self.subproject, location=node)
             self.add_build_def_file(version)
@@ -1302,6 +1307,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             subdir = os.path.join(self.subdir, spdirname)
             r = wrap.Resolver(self.environment.get_source_dir(), subdir, self.subproject, wrap_mode)
             if self.is_subproject():
+                assert self.environment.wrap_resolver is not None, 'for mypy'
                 self.environment.wrap_resolver.merge_wraps(r)
             else:
                 self.environment.wrap_resolver = r
@@ -1316,7 +1322,9 @@ class Interpreter(InterpreterBase, HoldableObject):
             # vs backend version we need. But after setting default_options in case
             # the project sets vs backend by default.
             backend = self.coredata.get_option(OptionKey('backend'))
+            assert backend is None or isinstance(backend, str), 'for mypy'
             vsenv = self.coredata.get_option(OptionKey('vsenv'))
+            assert isinstance(vsenv, bool), 'for mypy'
             force_vsenv = vsenv or backend.startswith('vs')
             mesonlib.setup_vsenv(force_vsenv)
 
@@ -1335,6 +1343,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         native = kwargs['native']
 
         if disabled:
+            assert feature, 'for mypy'
             for lang in sorted(langs, key=compilers.sort_clink):
                 mlog.log('Compiler for language', mlog.bold(lang), 'skipped: feature', mlog.bold(feature), 'disabled')
             return False
@@ -1736,7 +1745,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                     interp = self.subprojects[progobj.subproject].held_object
                 else:
                     interp = self
-                assert isinstance(interp, Interpreter)
+                assert isinstance(interp, Interpreter), 'for mypy'
                 version = interp.project_version
             else:
                 version = progobj.get_version(self)
@@ -1781,6 +1790,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                           ) -> T.Union['build.Executable', ExternalProgram, 'OverrideProgram']:
         disabled, required, feature = extract_required_kwarg(kwargs, self.subproject)
         if disabled:
+            assert feature, 'for mypy'
             mlog.log('Program', mlog.bold(' '.join(args[0])), 'skipped: feature', mlog.bold(feature), 'disabled')
             return self.notfound_program(args[0])
 
@@ -1823,7 +1833,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             if not_found_message:
                 self.message_impl([not_found_message])
             raise
-        assert isinstance(d, Dependency)
+        assert isinstance(d, Dependency), 'for mypy'
         if not d.found() and not_found_message:
             self.message_impl([not_found_message])
         # Ensure the correct include type
@@ -1877,6 +1887,7 @@ class Interpreter(InterpreterBase, HoldableObject):
     @permittedKwargs(known_library_kwargs)
     @typed_pos_args('both_libraries', str, varargs=SOURCES_VARARGS)
     @typed_kwargs('both_libraries', *LIBRARY_KWS, allow_unknown=True)
+    @noSecondLevelHolderResolving
     def func_both_lib(self, node: mparser.BaseNode,
                       args: T.Tuple[str, SourcesVarargsType],
                       kwargs: kwtypes.Library) -> build.BothLibraries:
@@ -1894,6 +1905,7 @@ class Interpreter(InterpreterBase, HoldableObject):
     @permittedKwargs(known_library_kwargs)
     @typed_pos_args('library', str, varargs=SOURCES_VARARGS)
     @typed_kwargs('library', *LIBRARY_KWS, allow_unknown=True)
+    @noSecondLevelHolderResolving
     def func_library(self, node: mparser.BaseNode,
                      args: T.Tuple[str, SourcesVarargsType],
                      kwargs: kwtypes.Library) -> build.Executable:
@@ -1911,12 +1923,16 @@ class Interpreter(InterpreterBase, HoldableObject):
     @permittedKwargs(known_build_target_kwargs)
     @typed_pos_args('build_target', str, varargs=SOURCES_VARARGS)
     @typed_kwargs('build_target', *BUILD_TARGET_KWS, allow_unknown=True)
+    @noSecondLevelHolderResolving
     def func_build_target(self, node: mparser.BaseNode,
                           args: T.Tuple[str, SourcesVarargsType],
                           kwargs: kwtypes.BuildTarget
                           ) -> T.Union[build.Executable, build.StaticLibrary, build.SharedLibrary,
                                        build.SharedModule, build.BothLibraries, build.Jar]:
         target_type = kwargs['target_type']
+        if target_type not in {'both_libraries', 'library'}:
+            args, kwargs = resolve_second_level_holders(args, kwargs)
+
         if target_type == 'executable':
             return self.build_target(node, args, kwargs, build.Executable)
         elif target_type == 'shared_library':
@@ -2160,10 +2176,11 @@ class Interpreter(InterpreterBase, HoldableObject):
         return tg
 
     @FeatureNew('alias_target', '0.52.0')
-    @typed_pos_args('alias_target', str, varargs=build.Target, min_varargs=1)
+    @typed_pos_args('alias_target', str, varargs=(build.Target, build.BothLibraries), min_varargs=1)
     @noKwargs
-    def func_alias_target(self, node: mparser.BaseNode, args: T.Tuple[str, T.List[build.Target]],
-                          kwargs: 'TYPE_kwargs') -> build.AliasTarget:
+    @noSecondLevelHolderResolving
+    def func_alias_target(self, node: mparser.BaseNode, args: T.Tuple[str, T.List[T.Union[build.Target, build.BothLibraries]]],
+                          kwargs: TYPE_kwargs) -> build.AliasTarget:
         name, deps = args
         if any(isinstance(d, build.RunTarget) for d in deps):
             FeatureNew.single_use('alias_target that depends on run_targets', '0.60.0', self.subproject)
@@ -2272,6 +2289,8 @@ class Interpreter(InterpreterBase, HoldableObject):
                  kwargs: T.Dict[str, T.Any], is_base_test: bool):
         if isinstance(args[1], (build.CustomTarget, build.CustomTargetIndex)):
             FeatureNew.single_use('test with CustomTarget as command', '1.4.0', self.subproject)
+        if any(isinstance(i, ExternalProgram) for i in kwargs['args']):
+            FeatureNew.single_use('test with external_program in args', '1.6.0', self.subproject)
 
         t = self.make_test(node, args, kwargs)
         if is_base_test:
@@ -2300,7 +2319,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             if kwargs['install_dir'] is not None:
                 raise InterpreterException('install_headers: cannot specify both "install_dir" and "subdir". Use only "install_dir".')
             if os.path.isabs(install_subdir):
-                mlog.deprecation('Subdir keyword must not be an absolute path. This will be a hard error in the next release.')
+                mlog.deprecation('Subdir keyword must not be an absolute path. This will be a hard error in meson 2.0.')
         else:
             install_subdir = ''
 
@@ -2793,6 +2812,12 @@ class Interpreter(InterpreterBase, HoldableObject):
             if isinstance(p, build.IncludeDirs):
                 result.append(p)
             elif isinstance(p, str):
+                if key == 'd_import_dirs' and os.path.normpath(p).startswith(self.environment.get_source_dir()):
+                    FeatureDeprecated.single_use('Building absolute path to source dir is not supported',
+                                                 '0.45', self.subproject,
+                                                 'Use a relative path instead.',
+                                                 location=self.current_node)
+                    p = os.path.relpath(p, os.path.join(self.environment.get_source_dir(), self.subdir))
                 result.append(self.build_incdir_object([p]))
             else:
                 raise InterpreterException('Include directory objects can only be created from strings or include directories.')
@@ -3157,7 +3182,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                 if not strict and s.startswith(self.environment.get_build_dir()):
                     results.append(s)
                     mlog.warning(f'Source item {s!r} cannot be converted to File object, because it is a generated file. '
-                                 'This will become a hard error in the future.', location=self.current_node)
+                                 'This will become a hard error in meson 2.0.', location=self.current_node)
                 else:
                     self.validate_within_subproject(self.subdir, s)
                     results.append(mesonlib.File.from_source_file(self.environment.source_dir, self.subdir, s))
@@ -3229,6 +3254,11 @@ class Interpreter(InterpreterBase, HoldableObject):
     def build_both_libraries(self, node: mparser.BaseNode, args: T.Tuple[str, SourcesVarargsType], kwargs: kwtypes.Library) -> build.BothLibraries:
         shared_lib = self.build_target(node, args, kwargs, build.SharedLibrary)
         static_lib = self.build_target(node, args, kwargs, build.StaticLibrary)
+        preferred_library = self.coredata.get_option(OptionKey('default_both_libraries'))
+        if preferred_library == 'auto':
+            preferred_library = self.coredata.get_option(OptionKey('default_library'))
+            if preferred_library == 'both':
+                preferred_library = 'shared'
 
         if self.backend.name == 'xcode':
             # Xcode is a bit special in that you can't (at least for the moment)
@@ -3260,14 +3290,16 @@ class Interpreter(InterpreterBase, HoldableObject):
             # Keep only compilers used for linking
             static_lib.compilers = {k: v for k, v in static_lib.compilers.items() if k in compilers.clink_langs}
 
-        return build.BothLibraries(shared_lib, static_lib)
+        return build.BothLibraries(shared_lib, static_lib, preferred_library)
 
     def build_library(self, node: mparser.BaseNode, args: T.Tuple[str, SourcesVarargsType], kwargs: kwtypes.Library):
         default_library = self.coredata.get_option(OptionKey('default_library', subproject=self.subproject))
         assert isinstance(default_library, str), 'for mypy'
         if default_library == 'shared':
+            args, kwargs = resolve_second_level_holders(args, kwargs)
             return self.build_target(node, args, T.cast('kwtypes.StaticLibrary', kwargs), build.SharedLibrary)
         elif default_library == 'static':
+            args, kwargs = resolve_second_level_holders(args, kwargs)
             return self.build_target(node, args, T.cast('kwtypes.SharedLibrary', kwargs), build.StaticLibrary)
         elif default_library == 'both':
             return self.build_both_libraries(node, args, kwargs)
@@ -3385,7 +3417,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                 kwargs['language_args'][lang].extend(args)
                 kwargs['depend_files'].extend(deps)
         if targetclass is not build.Jar:
-            self.kwarg_strings_to_includedirs(kwargs)
+            kwargs['d_import_dirs'] = self.extract_incdirs(kwargs, 'd_import_dirs')
 
         # Filter out kwargs from other target types. For example 'soversion'
         # passed to library() when default_library == 'static'.
@@ -3438,7 +3470,7 @@ class Interpreter(InterpreterBase, HoldableObject):
 
             if kwargs['implib']:
                 if kwargs['export_dynamic'] is False:
-                    FeatureDeprecated.single_use('implib overrides explict export_dynamic off', '1.3.0', self.subproject,
+                    FeatureDeprecated.single_use('implib overrides explicit export_dynamic off', '1.3.0', self.subproject,
                                                  'Do not set ths if want export_dynamic disabled if implib is enabled',
                                                  location=node)
                 kwargs['export_dynamic'] = True
@@ -3457,23 +3489,6 @@ class Interpreter(InterpreterBase, HoldableObject):
         self.add_target(name, target)
         self.project_args_frozen = True
         return target
-
-    def kwarg_strings_to_includedirs(self, kwargs: kwtypes._BuildTarget) -> None:
-        if kwargs['d_import_dirs']:
-            items = kwargs['d_import_dirs']
-            cleaned_items: T.List[build.IncludeDirs] = []
-            for i in items:
-                if isinstance(i, str):
-                    # BW compatibility. This was permitted so we must support it
-                    # for a few releases so people can transition to "correct"
-                    # path declarations.
-                    if os.path.normpath(i).startswith(self.environment.get_source_dir()):
-                        mlog.warning('''Building a path to the source dir is not supported. Use a relative path instead.
-This will become a hard error in the future.''', location=self.current_node)
-                        i = os.path.relpath(i, os.path.join(self.environment.get_source_dir(), self.subdir))
-                        i = self.build_incdir_object([i])
-                cleaned_items.append(i)
-            kwargs['d_import_dirs'] = cleaned_items
 
     def add_stdlib_info(self, target):
         for l in target.compilers.keys():

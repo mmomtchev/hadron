@@ -137,6 +137,7 @@ def get_target_macos_dylib_install_name(ld) -> str:
     name.append('.dylib')
     return ''.join(name)
 
+
 class InvalidArguments(MesonException):
     pass
 
@@ -238,7 +239,7 @@ class Build:
     def __init__(self, environment: environment.Environment):
         self.version = coredata.version
         self.project_name = 'name of master project'
-        self.project_version = None
+        self.project_version: T.Optional[str] = None
         self.environment = environment
         self.projects = {}
         self.targets: 'T.OrderedDict[str, T.Union[CustomTarget, BuildTarget]]' = OrderedDict()
@@ -782,8 +783,8 @@ class BuildTarget(Target):
         # we have to call process_compilers() first and we need to process libraries
         # from link_with and link_whole first.
         # See https://github.com/mesonbuild/meson/pull/11957#issuecomment-1629243208.
-        link_targets = extract_as_list(kwargs, 'link_with') + self.link_targets
-        link_whole_targets = extract_as_list(kwargs, 'link_whole') + self.link_whole_targets
+        link_targets = self.extract_targets_as_list(kwargs, 'link_with')
+        link_whole_targets = self.extract_targets_as_list(kwargs, 'link_whole')
         self.link_targets.clear()
         self.link_whole_targets.clear()
         self.link(link_targets)
@@ -1702,7 +1703,7 @@ class BuildTarget(Target):
                 else:
                     mlog.deprecation(f'target {self.name} links against shared module {link_target.name}, which is incorrect.'
                                      '\n             '
-                                     f'This will be an error in the future, so please use shared_library() for {link_target.name} instead.'
+                                     f'This will be an error in meson 2.0, so please use shared_library() for {link_target.name} instead.'
                                      '\n             '
                                      f'If shared_module() was used for {link_target.name} because it has references to undefined symbols,'
                                      '\n             '
@@ -1730,6 +1731,24 @@ class BuildTarget(Target):
                 'vs_module_defs must be either a string, '
                 'a file object, a Custom Target, or a Custom Target Index')
         self.process_link_depends(path)
+
+    def extract_targets_as_list(self, kwargs: T.Dict[str, T.Union[LibTypes, T.Sequence[LibTypes]]], key: T.Literal['link_with', 'link_whole']) -> T.List[LibTypes]:
+        bl_type = self.environment.coredata.get_option(OptionKey('default_both_libraries'))
+        if bl_type == 'auto':
+            bl_type = 'static' if isinstance(self, StaticLibrary) else 'shared'
+
+        def _resolve_both_libs(lib: LibTypes) -> LibTypes:
+            if isinstance(lib, BothLibraries):
+                return lib.get(bl_type)
+            return lib
+
+        self_libs: T.List[LibTypes] = self.link_targets if key == 'link_with' else self.link_whole_targets
+        lib_list = listify(kwargs.get(key, [])) + self_libs
+        return [_resolve_both_libs(t) for t in lib_list]
+
+    def get(self, lib_type: T.Literal['static', 'shared', 'auto']) -> LibTypes:
+        """Base case used by BothLibraries"""
+        return self
 
 class FileInTargetPrivateDir:
     """Represents a file with the path '/path/to/build/target_private_dir/fname'.
@@ -2114,6 +2133,11 @@ class StaticLibrary(BuildTarget):
             if self.rust_crate_type == 'staticlib':
                 # FIXME: In the case of no-std we should not add those libraries,
                 # but we have no way to know currently.
+
+                # XXX:
+                #  In the case of no-std, we are likely in a bare metal case
+                #  and thus, machine_info kernel should be set to 'none'.
+                #  In that case, native_static_libs list is empty.
                 rustc = self.compilers['rust']
                 d = dependencies.InternalDependency('undefined', [], [],
                                                     rustc.native_static_libs,
@@ -2477,8 +2501,8 @@ class SharedModule(SharedLibrary):
         return self.environment.get_shared_module_dir(), '{moduledir_shared}'
 
 class BothLibraries(SecondLevelHolder):
-    def __init__(self, shared: SharedLibrary, static: StaticLibrary) -> None:
-        self._preferred_library = 'shared'
+    def __init__(self, shared: SharedLibrary, static: StaticLibrary, preferred_library: Literal['shared', 'static', 'auto']) -> None:
+        self._preferred_library = preferred_library
         self.shared = shared
         self.static = static
         self.subproject = self.shared.subproject
@@ -2486,12 +2510,22 @@ class BothLibraries(SecondLevelHolder):
     def __repr__(self) -> str:
         return f'<BothLibraries: static={repr(self.static)}; shared={repr(self.shared)}>'
 
-    def get_default_object(self) -> BuildTarget:
+    def get(self, lib_type: T.Literal['static', 'shared', 'auto']) -> LibTypes:
+        if lib_type == 'static':
+            return self.static
+        if lib_type == 'shared':
+            return self.shared
+        return self.get_default_object()
+
+    def get_default_object(self) -> T.Union[StaticLibrary, SharedLibrary]:
         if self._preferred_library == 'shared':
             return self.shared
         elif self._preferred_library == 'static':
             return self.static
         raise MesonBugException(f'self._preferred_library == "{self._preferred_library}" is neither "shared" nor "static".')
+
+    def get_id(self) -> str:
+        return self.get_default_object().get_id()
 
 class CommandBase:
 
@@ -2549,6 +2583,10 @@ class CustomTargetBase:
 
     def get_internal_static_libraries_recurse(self, result: OrderedSet[BuildTargetTypes]) -> None:
         pass
+
+    def get(self, lib_type: T.Literal['static', 'shared', 'auto']) -> LibTypes:
+        """Base case used by BothLibraries"""
+        return self
 
 class CustomTarget(Target, CustomTargetBase, CommandBase):
 
@@ -2871,13 +2909,22 @@ class AliasTarget(RunTarget):
 
     typename = 'alias'
 
-    def __init__(self, name: str, dependencies: T.Sequence['Target'],
+    def __init__(self, name: str, dependencies: T.Sequence[T.Union[Target, BothLibraries]],
                  subdir: str, subproject: str, environment: environment.Environment):
-        super().__init__(name, [], dependencies, subdir, subproject, environment)
+        super().__init__(name, [], list(self._deps_generator(dependencies)), subdir, subproject, environment)
 
     def __repr__(self):
         repr_str = "<{0} {1}>"
         return repr_str.format(self.__class__.__name__, self.get_id())
+
+    @staticmethod
+    def _deps_generator(dependencies: T.Sequence[T.Union[Target, BothLibraries]]) -> T.Iterator[Target]:
+        for dep in dependencies:
+            if isinstance(dep, BothLibraries):
+                yield dep.shared
+                yield dep.static
+            else:
+                yield dep
 
 class Jar(BuildTarget):
     known_kwargs = known_jar_kwargs

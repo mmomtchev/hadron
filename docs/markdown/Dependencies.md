@@ -80,8 +80,8 @@ var = foo_dep.get_variable(cmake : 'CMAKE_VAR', pkgconfig : 'pkg-config-var', co
 ```
 
 It accepts the keywords 'cmake', 'pkgconfig', 'pkgconfig_define',
-'configtool', 'internal', and 'default_value'. 'pkgconfig_define'
-works just like the 'define_variable' argument to
+'configtool', 'internal', 'system', and 'default_value'.
+'pkgconfig_define' works just like the 'define_variable' argument to
 `get_pkgconfig_variable`. When this method is invoked the keyword
 corresponding to the underlying type of the dependency will be used to
 look for a variable. If that variable cannot be found or if the caller
@@ -766,7 +766,7 @@ your own risk.
 
 ## SDL2
 
-SDL2 can be located using `pkg-confg`, the `sdl2-config` config tool,
+SDL2 can be located using `pkg-config`, the `sdl2-config` config tool,
 as an OSX framework, or `cmake`.
 
 `method` may be `auto`, `config-tool`, `extraframework`,
@@ -848,6 +848,34 @@ version.
 `method` may be `auto`, `pkg-config`, `cmake`, or `system`.
 
 *New in 0.54.0* the `system` method.
+
+## DIA SDK
+
+*(added 1.6.0)*
+
+Microsoft's Debug Interface Access SDK (DIA SDK) is available only on Windows,
+when using msvc, clang-cl or clang compiler from Microsoft Visual Studio.
+
+The DIA SDK runtime is not statically linked to target. The default usage
+method requires the runtime DLL (msdiaXXX.dll) to be manually registered in the
+OS with `regsrv32.exe` command, so it can be loaded using `CoCreateInstance`
+Windows function.
+
+Alternatively, you can use meson to copy the DIA runtime DLL to your build
+directory, and load it dynamically using `NoRegCoCreate` function provided by
+the DIA SDK. To facilitate this, you can read DLL path from dependency's
+variable 'dll' and use fs module to copy it. Example:
+
+```meson
+dia = dependency('diasdk', required: true)
+fs = import('fs')
+fs.copyfile(dia.get_variable('dll'))
+
+conf = configuration_data()
+conf.set('msdia_dll_name', fs.name(dia_dll_name))
+```
+
+Only the major version is available (eg. version is `14` for msdia140.dll).
 
 <hr>
 <a name="footnote1">1</a>: They may appear to be case-insensitive, if the

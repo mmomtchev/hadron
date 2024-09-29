@@ -597,7 +597,7 @@ class Backend:
                              feed: T.Optional[str] = None,
                              force_serialize: bool = False,
                              env: T.Optional[mesonlib.EnvironmentVariables] = None,
-                             verbose: bool = False) -> T.Tuple[T.Sequence[T.Union[str, File, build.Target, programs.ExternalProgram]], str]:
+                             verbose: bool = False) -> T.Tuple[T.List[str], str]:
         '''
         Serialize an executable for running with a generator or a custom target
         '''
@@ -1135,7 +1135,7 @@ class Backend:
 
         if p.is_file():
             p = p.parent
-        # Heuristic: replace *last* occurence of '/lib'
+        # Heuristic: replace *last* occurrence of '/lib'
         binpath = Path('/bin'.join(p.as_posix().rsplit('/lib', maxsplit=1)))
         for _ in binpath.glob('*.dll'):
             return str(binpath)
@@ -1261,6 +1261,8 @@ class Backend:
                     cmd_args.append(a)
                 elif isinstance(a, (build.Target, build.CustomTargetIndex)):
                     cmd_args.extend(self.construct_target_rel_paths(a, t.workdir))
+                elif isinstance(a, programs.ExternalProgram):
+                    cmd_args.extend(a.get_command())
                 else:
                     raise MesonException('Bad object in test command.')
 

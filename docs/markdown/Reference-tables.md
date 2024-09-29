@@ -15,7 +15,7 @@ These are return values of the `get_id` (Compiler family) and
 | clang-cl  | The Clang compiler (MSVC compatible driver) | msvc |
 | dmd       | D lang reference compiler        |                 |
 | emscripten| Emscripten WASM compiler         |                 |
-| flang     | Flang Fortran compiler           |                 |
+| flang     | Classic Flang Fortran compiler   |                 |
 | g95       | The G95 Fortran compiler         |                 |
 | gcc       | The GNU Compiler Collection      | gcc             |
 | intel     | Intel compiler (Linux and Mac)   | gcc             |
@@ -24,6 +24,7 @@ These are return values of the `get_id` (Compiler family) and
 | intel-llvm-cl | Intel oneAPI LLVM-based compiler (Windows)  | msvc            |
 | lcc       | Elbrus C/C++/Fortran Compiler    |                 |
 | llvm      | LLVM-based compiler (Swift, D)   |                 |
+| llvm-flang| Flang Fortran compiler (LLVM-based) |              |
 | mono      | Xamarin C# compiler              |                 |
 | mwccarm   | Metrowerks C/C++ compiler for Embedded ARM         |                 |
 | mwcceppc  | Metrowerks C/C++ compiler for Embedded PowerPC     |                 |
@@ -61,6 +62,7 @@ These are return values of the `get_linker_id` method in a compiler object.
 | ld.mold    | The fast MOLD linker                        |
 | ld.solaris | Solaris and illumos                         |
 | ld.wasm    | emscripten's wasm-ld linker                 |
+| ld.zigcc   | The Zig linker (C/C++ frontend; GNU-like)   |
 | ld64       | Apple ld64                                  |
 | ld64.lld   | The LLVM linker, with the ld64 interface    |
 | link       | MSVC linker                                 |
@@ -154,7 +156,7 @@ These are provided by the `.system()` method call.
 | Value               | Comment                         |
 | -----               | -------                         |
 | android             | By convention only, subject to change |
-| cygwin              | The Cygwin environment for Windows |
+| cygwin              | Cygwin or MSYS2 environment on Windows |
 | darwin              | Either OSX or iOS |
 | dragonfly           | DragonFly BSD |
 | emscripten          | Emscripten's JavaScript environment |
@@ -164,7 +166,7 @@ These are provided by the `.system()` method call.
 | linux               | |
 | netbsd              | |
 | openbsd             | |
-| windows             | Any version of Windows |
+| windows             | Native Windows (not Cygwin or MSYS2) |
 | sunos               | illumos and Solaris |
 
 Any string not listed above is not guaranteed to remain stable in
