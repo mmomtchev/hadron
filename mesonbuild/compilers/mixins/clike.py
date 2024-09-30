@@ -89,6 +89,8 @@ class CLikeCompilerArgs(arglist.CompilerArgs):
                 new.insert(group_end + 1, '-Wl,--end-group')
                 new.insert(group_start, '-Wl,--start-group')
         # Remove system/default include paths added with -isystem
+        # TODO: Ideally get_default_include_dirs should be called
+        # with the -isysroot, but this would be a deeper change
         default_dirs = self.compiler.get_default_include_dirs()
         custom_sysroot = self.compiler.is_custom_sysroot(new)
         if default_dirs and not custom_sysroot:
