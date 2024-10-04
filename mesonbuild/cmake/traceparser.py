@@ -682,7 +682,7 @@ class CMakeTraceParser:
                         install_list += [absolute]
                     else:
                         mlog.warning(f'install(FILES {absolute}) references non-existing file, ignoring it' +
-                            ', see https://github.com/mmomtchev/hadron/issues/48')
+                                     ', see https://github.com/mmomtchev/hadron/issues/48')
                 i += 1
 
             while i < len(args):
