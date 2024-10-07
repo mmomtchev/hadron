@@ -1,4 +1,8 @@
-project('cmake_install_files', ['c', 'cpp'])
+project('windows_galore', ['c', 'cpp'])
+
+if not if build_machine.system() == 'windows'
+  error('MESON_SKIP_TEST: This test requires Windows')
+endif
 
 cm = import('cmake')
 
