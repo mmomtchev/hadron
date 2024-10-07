@@ -135,6 +135,8 @@ def _sanitize_cmake_name(name: str) -> str:
 _lib_regex = re.compile(r'(-l)?([_a-zA-Z0-9]+)(\.lib)?')
 def is_blacklisted_lib(lib: str) -> bool:
     name = _lib_regex.match(lib)
+    if name is None:
+        return False
     return name.group(2) in BLACKLIST_LINK_LIBS
 
 class OutputTargetMap:
