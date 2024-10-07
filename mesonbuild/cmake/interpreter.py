@@ -483,7 +483,6 @@ class ConverterTarget:
                 return False
             return True
 
-        print(self.link_libraries, BLACKLIST_LINK_LIBS)
         self.link_libraries = [x for x in self.link_libraries if not is_blacklisted_lib(x)]
         self.link_flags = [x for x in self.link_flags if check_flag(x)]
 
