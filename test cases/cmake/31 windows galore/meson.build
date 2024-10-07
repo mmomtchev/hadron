@@ -1,6 +1,6 @@
 project('windows_galore', ['c', 'cpp'])
 
-if not if build_machine.system() == 'windows'
+if not host_machine.system() == 'windows'
   error('MESON_SKIP_TEST: This test requires Windows')
 endif
 
