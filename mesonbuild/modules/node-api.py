@@ -151,7 +151,7 @@ class NapiModule(ExtensionModule):
     def load_emnapi_package(self) -> None:
         if self.emnapi_package is None:
             self.emnapi_package = self.parse_node_json_output('require("emnapi")')
-        mlog.log('emnapi:', mlog.bold(str([str(p) for p in self.emnapi_include_dirs(self.source_root)])))
+            mlog.log('emnapi:', mlog.bold(str([str(p) for p in self.emnapi_include_dirs(self.source_root)])))
 
     def construct_swig_options(self, opts: 'NodeAPIOptions') -> T.List[str]:
         if opts['swig']:
