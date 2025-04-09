@@ -219,10 +219,10 @@ class NapiModule(ExtensionModule):
 
     def download_item(self, url: str, dest: Path) -> None:
         try:
-            remote = urllib.request.urlopen(url)
             if url.endswith('.tar.gz'):
                 if not os.path.exists(dest):
                     mlog.log(f'Downloading {url} to {dest}')
+                    remote = urllib.request.urlopen(url)
                     with tarfile.open(fileobj=io.BytesIO(remote.read()), mode='r:gz') as input:
                         input.extractall(path=dest, members=tar_strip1(input.getmembers()))
             else:
@@ -230,6 +230,7 @@ class NapiModule(ExtensionModule):
                 file = Path(dest, os.path.basename(filename.path))
                 if not os.path.exists(file):
                     mlog.log(f'Downloading {url} to {str(file)}')
+                    remote = urllib.request.urlopen(url)
                     with file.open('wb') as output:
                         output.write(remote.read())
         except Exception as e:
