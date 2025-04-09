@@ -33,6 +33,9 @@ jobs:
       MESON_CI_JOBNAME: ubuntu-${{ github.job }}
 
     steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
     - run: |
         apt-get -y purge clang gcc gdc
         apt-get -y autoremove
