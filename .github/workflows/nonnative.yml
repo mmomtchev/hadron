@@ -65,6 +65,8 @@ jobs:
         python3 -m pip install coverage
     - uses: actions/checkout@v3
     - uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 4.0.2
     - name: Run a single test to populate the cache
       run: |
         cd $GITHUB_WORKSPACE
