@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-import io, sys, traceback, json, io, sys
+import io, sys, traceback, json
 
 from .. import mparser
 from .. import environment
