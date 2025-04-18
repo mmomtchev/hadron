@@ -178,10 +178,18 @@ class NapiModule(ExtensionModule):
 
         # emscripten cannot link code compiled with -pthread with code compiled without it
         build_opts = self.interpreter.environment.coredata.optstore
-        c_thread_count: int = build_opts.get_value(OptionKey('c_thread_count'))
+        c_thread_count: int = options.UserIntegerOption(
+            'c_thread_count',
+            'Number of threads to use in web assembly, set to 0 to disable',
+            4,  # Node.js/emnapi default
+            min_value=0)
         cpp_thread_count: int = 0
         if 'cpp' in self.interpreter.environment.coredata.compilers.host:
-            cpp_thread_count = build_opts.get_value(OptionKey('cpp_thread_count'))
+            cpp_thread_count: int = options.UserIntegerOption(
+                'cpp_thread_count',
+                'Number of threads to use in web assembly, set to 0 to disable',
+                4,  # Node.js/emnapi default
+                min_value=0)
             exceptions = build_opts.get_value(OptionKey('cpp_eh')) != 'none'
             if exceptions:
                 cpp_args.append('-sNO_DISABLE_EXCEPTION_CATCHING')
