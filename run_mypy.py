@@ -36,6 +36,7 @@ modules = [
     # 'mesonbuild/coredata.py',
     'mesonbuild/depfile.py',
     'mesonbuild/envconfig.py',
+    'mesonbuild/environment.py',
     'mesonbuild/interpreter/compiler.py',
     'mesonbuild/interpreter/mesonmain.py',
     'mesonbuild/interpreter/interpreterobjects.py',
@@ -56,6 +57,7 @@ modules = [
     'mesonbuild/mlog.py',
     'mesonbuild/msubprojects.py',
     'mesonbuild/modules/__init__.py',
+    'mesonbuild/modules/cmake.py',
     'mesonbuild/modules/cuda.py',
     'mesonbuild/modules/external_project.py',
     'mesonbuild/modules/fs.py',
@@ -80,6 +82,7 @@ modules = [
     'mesonbuild/msetup.py',
     'mesonbuild/mtest.py',
     'mesonbuild/optinterpreter.py',
+    'mesonbuild/options.py',
     'mesonbuild/programs.py',
 ]
 additional = [

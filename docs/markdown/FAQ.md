@@ -285,7 +285,7 @@ or they are not called (due to e.g. `if/else`) then nothing is
 downloaded.
 
 If this is not sufficient for you, starting from release 0.40.0 Meson
-has a option called `wrap-mode` which can be used to disable wrap
+has an option called `wrap-mode` which can be used to disable wrap
 downloads altogether with `--wrap-mode=nodownload`. You can also
 disable dependency fallbacks altogether with `--wrap-mode=nofallback`,
 which also implies the `nodownload` option.
@@ -332,6 +332,24 @@ that could fulfill these requirements:
 
 Out of these we have chosen Python because it is the best fit for our
 needs.
+
+## Do you at least support my ancient python install?
+
+Yes! :) We have a relatively sedate version support policy. You can read about
+it in the [Contributing documentation](Contributing.md#python)
+
+We are also willing to support old versions of meson as LTS releases,
+particularly, if it is the final version to support a given python version. If
+you have a use case, please discuss it with us and be willing to help backport
+bug fixes.
+
+- python 3.5: [supported through Meson 0.56.2](Release-notes-for-0.56.0.md#python-35-support-will-be-dropped-in-the-next-release)
+- python 3.6: [supported through Meson 0.61.5](Release-notes-for-0.61.0.md#python-36-support-will-be-dropped-in-the-next-release)
+- python 3.7: currently actively supported by Meson
+
+We encourage projects to support a wide range of Meson versions if they are not
+actually using the latest features anyway. In many, many cases it is quite
+practical to support e.g. Meson 0.61.
 
 ## But I really want a version of Meson that doesn't use python!
 
