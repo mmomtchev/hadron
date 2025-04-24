@@ -18,6 +18,7 @@ if T.TYPE_CHECKING:
     from ...environment import Environment
     from ...compilers.compilers import Compiler
     from ...dependencies import Dependency
+    from ...build import BuildTarget
 else:
     # This is a bit clever, for mypy we pretend that these mixins descend from
     # Compiler, so we get all of the methods and attributes defined for us, but
@@ -63,13 +64,13 @@ class EmscriptenMixin(Compiler):
     def get_debug_args(self, is_debug: bool) -> T.List[str]:
         return emscripten_debug_args[is_debug]
 
-    def get_option_link_args(self, options: coredata.KeyedOptionDictType) -> T.List[str]:
-        if options.get_value(OptionKey('debug')):
+    def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
+        if env.coredata.optstore.get_value(OptionKey('debug', machine=self.for_machine)):
             return ['-gsource-map']
         return []
 
-    def sanitizer_link_args(self, value: str) -> T.List[str]:
-        if 'address' in value.split(','):
+    def sanitizer_link_args(self, value: T.List[str]) -> T.List[str]:
+        if 'address' in value:
             return ['-sSAFE_HEAP=1', '-sASSERTIONS=2', '-sSTACK_OVERFLOW_CHECK=2']
         return []
 

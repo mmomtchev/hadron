@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import json, subprocess, os, sys, tarfile, io
-import urllib.request, urllib.error, urllib.parse
+import urllib.request, urllib.parse
 from pathlib import Path
 import typing as T
 
@@ -178,10 +178,12 @@ class NapiModule(ExtensionModule):
 
         # emscripten cannot link code compiled with -pthread with code compiled without it
         build_opts = self.interpreter.environment.coredata.optstore
-        c_thread_count: int = build_opts.get_value(OptionKey('c_thread_count'))
-        cpp_thread_count: int = 0
+        c_thread_count = build_opts.get_value(OptionKey('c_thread_count'))
+        assert isinstance(c_thread_count, int)
+        cpp_thread_count: options.ElementaryOptionValues = 0
         if 'cpp' in self.interpreter.environment.coredata.compilers.host:
             cpp_thread_count = build_opts.get_value(OptionKey('cpp_thread_count'))
+            assert isinstance(cpp_thread_count, int)
             exceptions = build_opts.get_value(OptionKey('cpp_eh')) != 'none'
             if exceptions:
                 cpp_args.append('-sNO_DISABLE_EXCEPTION_CATCHING')
@@ -351,7 +353,9 @@ class NapiModule(ExtensionModule):
             inc_dir = self.node_addon_api_package['include'].strip('\"')
             node_addon_api_dir = self.relativize(inc_dir, source_dir)
             kwargs.setdefault('include_directories', []).extend([str(node_addon_api_dir)])
-            kwargs.setdefault('override_options', {})
+            # It seems tht the options may be parsed or may be not
+            kwargs['override_options'] = T.cast('dict[OptionKey, str | int | bool | list[str]]',
+                                                BuildTarget.parse_overrides(T.cast('dict[str, Any]', kwargs)))
             # The default C++ standard when using node-addon-api should be C++17
             cpp_std_key = OptionKey('cpp_std')
             if cpp_std_key not in kwargs['override_options']:

@@ -835,7 +835,7 @@ class CMakeInterpreter:
         self.output_target_map = OutputTargetMap(self.build_dir)
 
         # Set the default CMake build type from the meson build type
-        cmake_build_type = T.cast('str', self.env.coredata.get_option(OptionKey('buildtype')))
+        cmake_build_type = T.cast('str', env.coredata.optstore.get_value_for(OptionKey('buildtype')))
         self.build_type = BUILDTYPE_MAP[cmake_build_type] if cmake_build_type in BUILDTYPE_MAP else cmake_build_type
 
         # Generated meson data
@@ -873,13 +873,12 @@ class CMakeInterpreter:
         cmake_args += extra_cmake_options
         if any(arg.startswith('-DCMAKE_BUILD_TYPE=') for arg in cmake_args):
             # Allow to override the CMAKE_BUILD_TYPE environment variable
-            mlog.debug('CMake build type explicitly set')
             cmake_build_type = next(arg for arg in cmake_args if arg.startswith('-DCMAKE_BUILD_TYPE=')).split('=')[1]
             self.build_type = BUILDTYPE_MAP[cmake_build_type] if cmake_build_type in BUILDTYPE_MAP else cmake_build_type
+            mlog.debug(f'CMake build type explicitly set: {self.build_type}')
         else:
-            mlog.debug('CMake build type set from the meson build type')
-            buildtype = T.cast('str', self.env.coredata.optstore.get_value_for(OptionKey('buildtype')))
-            cmake_args += [f'-DCMAKE_BUILD_TYPE={buildtype}']
+            mlog.debug(f'CMake build type set from the meson build type: {self.build_type}')
+            cmake_args += [f'-DCMAKE_BUILD_TYPE={self.build_type}']
 
         # CMAKE_MAKE_PROGRAM cannot be reliably set from the toolchain
         # It belongs in the generator (or the cache)
