@@ -15,10 +15,10 @@ from ...mesonlib import LibType
 from mesonbuild.compilers.compilers import CompileCheckMode
 
 if T.TYPE_CHECKING:
-    from ... import coredata
     from ...environment import Environment
     from ...compilers.compilers import Compiler
     from ...dependencies import Dependency
+    from ...build import BuildTarget
 else:
     # This is a bit clever, for mypy we pretend that these mixins descend from
     # Compiler, so we get all of the methods and attributes defined for us, but
@@ -55,7 +55,8 @@ class EmscriptenMixin(Compiler):
 
     def thread_link_flags(self, env: 'Environment') -> T.List[str]:
         args = ['-pthread']
-        count: int = env.coredata.optstore.get_value(OptionKey(f'{self.language}_thread_count', machine=self.for_machine))
+        count = env.coredata.optstore.get_value(OptionKey(f'{self.language}_thread_count', machine=self.for_machine))
+        assert isinstance(count, int)
         if count:
             args.append(f'-sPTHREAD_POOL_SIZE={count}')
         return args
@@ -63,26 +64,27 @@ class EmscriptenMixin(Compiler):
     def get_debug_args(self, is_debug: bool) -> T.List[str]:
         return emscripten_debug_args[is_debug]
 
-    def get_option_link_args(self, options: coredata.KeyedOptionDictType) -> T.List[str]:
-        if options.get_value(OptionKey('debug')):
+    def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
+        if env.coredata.optstore.get_value(OptionKey('debug', machine=self.for_machine)):
             return ['-gsource-map']
         return []
 
-    def sanitizer_link_args(self, value: str) -> T.List[str]:
-        if 'address' in value.split(','):
+    def sanitizer_link_args(self, value: T.List[str]) -> T.List[str]:
+        if 'address' in value:
             return ['-sSAFE_HEAP=1', '-sASSERTIONS=2', '-sSTACK_OVERFLOW_CHECK=2']
         return []
 
-    def get_options(self) -> coredata.MutableKeyedOptionDictType:
-        return self.update_options(
-            super().get_options(),
-            self.create_option(
-                options.UserIntegerOption,
-                OptionKey(f'{self.language}_thread_count', machine=self.for_machine),
-                'Number of threads to use in web assembly, set to 0 to disable',
-                (0, None, 4),  # Default was picked at random
-            ),
-        )
+    def get_options(self) -> options.MutableKeyedOptionDictType:
+        opts = super().get_options()
+
+        key = OptionKey(f'{self.language}_thread_count', machine=self.for_machine)
+        opts[key] = options.UserIntegerOption(
+            self.make_option_name(key),
+            'Number of threads to use in web assembly, set to 0 to disable',
+            4,  # Default was picked at random
+            min_value=0)
+
+        return opts
 
     @classmethod
     def native_args_to_unix(cls, args: T.List[str]) -> T.List[str]:

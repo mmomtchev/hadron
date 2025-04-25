@@ -121,7 +121,7 @@ def parse_generator_expressions(
 
         # Configurations (Debug, Release...)
         # CMake is case-insensitive
-        'CONFIG': lambda x: '1' if x.upper() == T.cast('str', trace.env.coredata.get_option(OptionKey('buildtype'))).upper() else '0'
+        'CONFIG': lambda x: '1' if x.upper() == T.cast('str', trace.env.coredata.optstore.get_value_for(OptionKey('buildtype'))).upper() else '0'
     }
 
     # Recursively evaluate generator expressions

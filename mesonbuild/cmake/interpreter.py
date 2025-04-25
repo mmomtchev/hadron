@@ -19,6 +19,7 @@ from .toolchain import CMakeToolchain, CMakeExecScope
 from .traceparser import CMakeTraceParser
 from .tracetargets import resolve_cmake_trace_targets
 from .. import mlog, mesonlib
+from .. import options
 from ..mesonlib import MachineChoice, OrderedSet, path_is_in_root, relative_to_if_possible
 from ..options import OptionKey
 from ..environment import detect_ninja
@@ -312,6 +313,17 @@ class ConverterTarget:
             else:
                 self.sources += i.sources
 
+        self.clib_compiler = None
+        compilers = self.env.coredata.compilers[self.for_machine]
+
+        for lang in ['objcpp', 'cpp', 'objc', 'fortran', 'c']:
+            if lang in self.languages:
+                try:
+                    self.clib_compiler = compilers[lang]
+                    break
+                except KeyError:
+                    pass
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}: {self.name}>'
 
@@ -363,7 +375,7 @@ class ConverterTarget:
         if tgt:
             self.depends_raw = trace.targets[self.cmake_name].depends
 
-            rtgt = resolve_cmake_trace_targets(self.cmake_name, trace, self.env)
+            rtgt = resolve_cmake_trace_targets(self.cmake_name, trace, self.env, clib_compiler=self.clib_compiler)
             # FIXME: In theory, only IMPORTED and INTERFACE targets need
             # the ResolvedTarget parsing of the trace file - all other
             # targets have already their include directories from the fileAPI
@@ -449,9 +461,8 @@ class ConverterTarget:
         def non_optional(inputs: T.Iterable[T.Optional[Path]]) -> T.List[Path]:
             return [p for p in inputs if p is not None]
 
-        build_dir_rel = self.build_dir.relative_to(Path(self.env.get_build_dir()) / subdir)
         self.generated_raw = non_optional(rel_path(x, False, True) for x in self.generated_raw)
-        self.includes = non_optional(itertools.chain((rel_path(x, True, False) for x in OrderedSet(self.includes)), [build_dir_rel]))
+        self.includes = non_optional(itertools.chain((rel_path(x, True, False) for x in OrderedSet(self.includes))))
         self.sys_includes = non_optional(rel_path(x, True, False) for x in OrderedSet(self.sys_includes))
         self.sources = non_optional(rel_path(x, False, False) for x in self.sources)
 
@@ -562,16 +573,11 @@ class ConverterTarget:
     @lru_cache(maxsize=None)
     def _all_lang_stds(self, lang: str) -> 'ImmutableListProtocol[str]':
         try:
-            res = self.env.coredata.optstore.get_value_object(OptionKey(f'{lang}_std', machine=MachineChoice.BUILD)).choices
+            opt = self.env.coredata.optstore.get_value_object(OptionKey(f'{lang}_std', machine=MachineChoice.BUILD))
+            assert isinstance(opt, (options.UserStdOption, options.UserComboOption)), 'for mypy'
+            return opt.choices or []
         except KeyError:
             return []
-
-        # TODO: Get rid of this once we have proper typing for options
-        assert isinstance(res, list)
-        for i in res:
-            assert isinstance(i, str)
-
-        return res
 
     def process_inter_target_dependencies(self) -> None:
         # Move the dependencies from all TRANSFER_DEPENDENCIES_FROM to the target
@@ -829,7 +835,7 @@ class CMakeInterpreter:
         self.output_target_map = OutputTargetMap(self.build_dir)
 
         # Set the default CMake build type from the meson build type
-        cmake_build_type = T.cast('str', self.env.coredata.get_option(OptionKey('buildtype')))
+        cmake_build_type = T.cast('str', env.coredata.optstore.get_value_for(OptionKey('buildtype')))
         self.build_type = BUILDTYPE_MAP[cmake_build_type] if cmake_build_type in BUILDTYPE_MAP else cmake_build_type
 
         # Generated meson data
@@ -867,11 +873,11 @@ class CMakeInterpreter:
         cmake_args += extra_cmake_options
         if any(arg.startswith('-DCMAKE_BUILD_TYPE=') for arg in cmake_args):
             # Allow to override the CMAKE_BUILD_TYPE environment variable
-            mlog.debug('CMake build type explicitly set')
             cmake_build_type = next(arg for arg in cmake_args if arg.startswith('-DCMAKE_BUILD_TYPE=')).split('=')[1]
             self.build_type = BUILDTYPE_MAP[cmake_build_type] if cmake_build_type in BUILDTYPE_MAP else cmake_build_type
+            mlog.debug(f'CMake build type explicitly set: {self.build_type}')
         else:
-            mlog.debug('CMake build type set from the meson build type')
+            mlog.debug(f'CMake build type set from the meson build type: {self.build_type}')
             cmake_args += [f'-DCMAKE_BUILD_TYPE={self.build_type}']
 
         # CMAKE_MAKE_PROGRAM cannot be reliably set from the toolchain
