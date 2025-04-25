@@ -54,6 +54,7 @@ from .type_checking import (
     CT_BUILD_BY_DEFAULT,
     CT_INPUT_KW,
     CT_INSTALL_DIR_KW,
+    _EXCLUSIVE_EXECUTABLE_KWS,
     EXECUTABLE_KWS,
     JAR_KWS,
     LIBRARY_KWS,
@@ -703,20 +704,18 @@ class Interpreter(InterpreterBase, HoldableObject):
             version = self.project_version
         d_module_versions = kwargs['d_module_versions']
         d_import_dirs = self.extract_incdirs(kwargs, 'd_import_dirs')
-        srcdir = Path(self.environment.source_dir)
+        srcdir = self.environment.source_dir
+        subproject_dir = os.path.abspath(os.path.join(srcdir, self.subproject_dir))
+        project_root = os.path.abspath(os.path.join(srcdir, self.root_subdir))
         # convert variables which refer to an -uninstalled.pc style datadir
         for k, v in variables.items():
             if not v:
                 FeatureNew.single_use('empty variable value in declare_dependency', '1.4.0', self.subproject, location=node)
-            try:
-                p = Path(v)
-            except ValueError:
-                continue
-            else:
-                if not self.is_subproject() and srcdir / self.subproject_dir in p.parents:
-                    continue
-                if p.is_absolute() and p.is_dir() and srcdir / self.root_subdir in [p] + list(Path(os.path.abspath(p)).parents):
-                    variables[k] = P_OBJ.DependencyVariableString(v)
+            if os.path.isabs(v) \
+                    and (self.is_subproject() or not is_parent_path(subproject_dir, v)) \
+                    and is_parent_path(project_root, v) \
+                    and os.path.isdir(v):
+                variables[k] = P_OBJ.DependencyVariableString(v)
 
         dep = dependencies.InternalDependency(version, incs, compile_args,
                                               link_args, libs, libs_whole, sources, extra_files,
@@ -1058,7 +1057,7 @@ class Interpreter(InterpreterBase, HoldableObject):
     @typed_pos_args('get_option', str)
     @noKwargs
     def func_get_option(self, node: mparser.BaseNode, args: T.Tuple[str],
-                        kwargs: kwtypes.FuncGetOption) -> T.Union[options.UserOption, 'TYPE_var']:
+                        kwargs: TYPE_kwargs) -> T.Union[options.UserOption, 'TYPE_var']:
         optname = args[0]
 
         if ':' in optname:
@@ -1068,6 +1067,9 @@ class Interpreter(InterpreterBase, HoldableObject):
         if optname_regex.search(optname.split('.', maxsplit=1)[-1]) is not None:
             raise InterpreterException(f'Invalid option name {optname!r}')
 
+        # Will be None only if the value comes from the default
+        value_object: T.Optional[options.AnyOptionType]
+
         try:
             optkey = options.OptionKey(optname, self.subproject)
             value_object, value = self.coredata.optstore.get_value_object_and_value_for(optkey)
@@ -1075,7 +1077,14 @@ class Interpreter(InterpreterBase, HoldableObject):
             if self.coredata.optstore.is_base_option(optkey):
                 # Due to backwards compatibility return the default
                 # option for base options instead of erroring out.
-                return self.coredata.optstore.get_default_for_b_option(optkey)
+                #
+                # TODO: This will have issues if we expect to return a user FeatureOption
+                #       Of course, there's a bit of a layering violation here in
+                #       that we return a UserFeatureOption, but otherwise the held value
+                #       We probably need a lower level feature thing, or an enum
+                #       instead of strings
+                value = self.coredata.optstore.get_default_for_b_option(optkey)
+                value_object = None
             else:
                 if self.subproject:
                     raise MesonException(f'Option {optname} does not exist for subproject {self.subproject}.')
@@ -1086,7 +1095,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             ocopy.value = value
             return ocopy
         elif optname == 'b_sanitize':
-            assert isinstance(value_object, options.UserStringArrayOption)
+            assert value_object is None or isinstance(value_object, options.UserStringArrayOption)
             # To ensure backwards compatibility this always returns a string.
             # We may eventually want to introduce a new "format" kwarg that
             # allows the user to modify this behaviour, but for now this is
@@ -1094,13 +1103,10 @@ class Interpreter(InterpreterBase, HoldableObject):
             if not value:
                 return 'none'
             return ','.join(sorted(value))
-        elif isinstance(value_object, options.UserOption):
-            if isinstance(value_object.value, str):
-                return P_OBJ.OptionString(value, f'{{{optname}}}')
-            return value
-        ocopy = copy.copy(value_object)
-        ocopy.value = value
-        return ocopy
+
+        if isinstance(value, str):
+            return P_OBJ.OptionString(value, f'{{{optname}}}')
+        return value
 
     @typed_pos_args('configuration_data', optargs=[dict])
     @noKwargs
@@ -1827,12 +1833,24 @@ class Interpreter(InterpreterBase, HoldableObject):
     def func_disabler(self, node, args, kwargs):
         return Disabler()
 
+    def _strip_exe_specific_kwargs(self, kwargs: kwtypes.Executable) -> kwtypes._BuildTarget:
+        kwargs = kwargs.copy()
+        for exe_kwarg in _EXCLUSIVE_EXECUTABLE_KWS:
+            del kwargs[exe_kwarg.name]
+        return kwargs
+
     @permittedKwargs(build.known_exe_kwargs)
     @typed_pos_args('executable', str, varargs=SOURCES_VARARGS)
     @typed_kwargs('executable', *EXECUTABLE_KWS, allow_unknown=True)
     def func_executable(self, node: mparser.BaseNode,
                         args: T.Tuple[str, SourcesVarargsType],
                         kwargs: kwtypes.Executable) -> build.Executable:
+        for_machine = kwargs['native']
+        m = self.environment.machines[for_machine]
+        if m.is_android() and kwargs.get('android_exe_type') == 'application':
+            holder = self.build_target(node, args, self._strip_exe_specific_kwargs(kwargs), build.SharedLibrary)
+            holder.shared_library_only = True
+            return holder
         return self.build_target(node, args, kwargs, build.Executable)
 
     @permittedKwargs(build.known_stlib_kwargs)
