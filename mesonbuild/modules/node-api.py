@@ -361,9 +361,9 @@ class NapiModule(ExtensionModule):
                 assert len(kwargs['override_options']) == 0
             else:
                 override_options = T.cast('list[str]', kwargs['override_options'])
-            # The default C++ standard when using node-addon-api should be C++17
+            # The default C++ standard when using node-addon-api should be C++20
             if not any(opt.startswith('cpp_std') for opt in override_options):
-                override_options += ['cpp_std=c++17']
+                override_options += ['cpp_std=c++20']
             kwargs['override_options'] = T.cast('dict[OptionKey, str | int | bool | list[str]]', override_options)
 
         if self.napi_includes:
