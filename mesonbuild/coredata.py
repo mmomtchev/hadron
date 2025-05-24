@@ -72,7 +72,7 @@ if T.TYPE_CHECKING:
 #
 # Pip requires that RCs are named like this: '0.1.0.rc1'
 # But the corresponding Git tag needs to be '0.1.0rc1'
-version = '1.8.0'
+version = '1.8.99'
 
 # The next stable version when we are in dev. This is used to allow projects to
 # require meson version >=1.2.0 when using 1.1.99. FeatureNew won't warn when
@@ -248,6 +248,7 @@ class CoreData:
             'default': '8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942',
             'c': '8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942',
             'cpp': '8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942',
+            'masm': '8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942',
             'test': '3AC096D0-A1C2-E12C-1390-A8335801FDAB',
             'directory': '2150E333-8FDC-42A3-9474-1A3956D46DE8',
         }
@@ -412,6 +413,13 @@ class CoreData:
             return option_object.validate_value(override)
         return value
 
+    def set_from_configure_command(self, options: SharedCMDOptions) -> bool:
+        unset_opts = getattr(options, 'unset_opts', [])
+        all_D = options.projectoptions[:]
+        for keystr, valstr in options.cmd_line_options.items():
+            all_D.append(f'{keystr}={valstr}')
+        return self.optstore.set_from_configure_command(all_D, unset_opts)
+
     def set_option(self, key: OptionKey, value, first_invocation: bool = False) -> bool:
         dirty = False
         try:
@@ -565,17 +573,16 @@ class CoreData:
 
         return dirty
 
-    def add_compiler_options(self, c_options: MutableKeyedOptionDictType, lang: str, for_machine: MachineChoice,
-                             env: Environment, subproject: str) -> None:
+    def add_compiler_options(self, c_options: MutableKeyedOptionDictType, lang: str, for_machine: MachineChoice) -> None:
         for k, o in c_options.items():
-            comp_key = OptionKey(f'{k.name}', None, for_machine)
+            assert k.subproject is None and k.machine is for_machine
             if lang == 'objc' and k.name == 'c_std':
                 # For objective C, always fall back to c_std.
-                self.optstore.add_compiler_option('c', comp_key, o)
+                self.optstore.add_compiler_option('c', k, o)
             elif lang == 'objcpp' and k.name == 'cpp_std':
-                self.optstore.add_compiler_option('cpp', comp_key, o)
+                self.optstore.add_compiler_option('cpp', k, o)
             else:
-                self.optstore.add_compiler_option(lang, comp_key, o)
+                self.optstore.add_compiler_option(lang, k, o)
 
     def add_lang_args(self, lang: str, comp: T.Type['Compiler'],
                       for_machine: MachineChoice, env: 'Environment') -> None:
@@ -587,8 +594,8 @@ class CoreData:
         for gopt_key, gopt_valobj in compilers.get_global_options(lang, comp, for_machine, env).items():
             self.optstore.add_compiler_option(lang, gopt_key, gopt_valobj)
 
-    def process_compiler_options(self, lang: str, comp: Compiler, env: Environment, subproject: str) -> None:
-        self.add_compiler_options(comp.get_options(), lang, comp.for_machine, env, subproject)
+    def process_compiler_options(self, lang: str, comp: Compiler, subproject: str) -> None:
+        self.add_compiler_options(comp.get_options(), lang, comp.for_machine)
 
         for key in comp.base_options:
             if subproject:
@@ -701,18 +708,14 @@ def register_builtin_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('-D', action='append', dest='projectoptions', default=[], metavar="option",
                         help='Set the value of an option, can be used several times to set multiple options.')
 
-def create_options_dict(options: T.List[str], subproject: str = '') -> T.Dict[str, str]:
-    result: T.OrderedDict[OptionKey, str] = OrderedDict()
-    for o in options:
+def parse_cmd_line_options(args: SharedCMDOptions) -> None:
+    args.cmd_line_options = {}
+    for o in args.projectoptions:
         try:
             (key, value) = o.split('=', 1)
         except ValueError:
             raise MesonException(f'Option {o!r} must have a value separated by equals sign.')
-        result[key] = value
-    return result
-
-def parse_cmd_line_options(args: SharedCMDOptions) -> None:
-    args.cmd_line_options = create_options_dict(args.projectoptions)
+        args.cmd_line_options[key] = value
 
     # Merge builtin options set with --option into the dict.
     for key in chain(

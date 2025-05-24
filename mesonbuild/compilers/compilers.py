@@ -749,7 +749,7 @@ class Compiler(HoldableObject, metaclass=abc.ABCMeta):
         return args.copy()
 
     def find_library(self, libname: str, env: 'Environment', extra_dirs: T.List[str],
-                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True) -> T.Optional[T.List[str]]:
+                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True, ignore_system_dirs: bool = False) -> T.Optional[T.List[str]]:
         raise EnvironmentException(f'Language {self.get_display_language()} does not support library finding.')
 
     def get_library_naming(self, env: 'Environment', libtype: LibType,
@@ -1203,6 +1203,23 @@ class Compiler(HoldableObject, metaclass=abc.ABCMeta):
         is good enough here.
         """
 
+    def run_sanity_check(self, environment: Environment, cmdlist: T.List[str], work_dir: str, use_exe_wrapper_for_cross: bool = True) -> T.Tuple[str, str]:
+        # Run sanity check
+        if self.is_cross and use_exe_wrapper_for_cross:
+            if not environment.has_exe_wrapper():
+                # Can't check if the binaries run so we have to assume they do
+                return ('', '')
+            cmdlist = environment.exe_wrapper.get_command() + cmdlist
+        mlog.debug('Running test binary command: ', mesonlib.join_args(cmdlist))
+        try:
+            pe, stdo, stde = Popen_safe_logged(cmdlist, 'Sanity check', cwd=work_dir)
+        except Exception as e:
+            raise mesonlib.EnvironmentException(f'Could not invoke sanity check executable: {e!s}.')
+
+        if pe.returncode != 0:
+            raise mesonlib.EnvironmentException(f'Executables created by {self.language} compiler {self.name_string()} are not runnable.')
+        return stdo, stde
+
     def split_shlib_to_parts(self, fname: str) -> T.Tuple[T.Optional[str], str]:
         return None, fname
 
@@ -1410,12 +1427,19 @@ def get_global_options(lang: str,
     description = f'Extra arguments passed to the {lang}'
     argkey = OptionKey(f'{lang}_args', machine=for_machine)
     largkey = OptionKey(f'{lang}_link_args', machine=for_machine)
-    envkey = OptionKey(f'{lang}_env_args', machine=for_machine)
 
-    comp_key = argkey if argkey in env.options else envkey
+    comp_args_from_envvar = False
+    comp_options = env.coredata.optstore.get_pending_value(argkey)
+    if comp_options is None:
+        comp_args_from_envvar = True
+        comp_options = env.env_opts.get(argkey, [])
 
-    comp_options = env.options.get(comp_key, [])
-    link_options = env.options.get(largkey, [])
+    link_args_from_envvar = False
+    link_options = env.coredata.optstore.get_pending_value(largkey)
+    if link_options is None:
+        link_args_from_envvar = True
+        link_options = env.env_opts.get(largkey, [])
+
     assert isinstance(comp_options, (str, list)), 'for mypy'
     assert isinstance(link_options, (str, list)), 'for mypy'
 
@@ -1429,7 +1453,7 @@ def get_global_options(lang: str,
         description + ' linker',
         link_options, split_args=True, allow_dups=True)
 
-    if comp.INVOKES_LINKER and comp_key == envkey:
+    if comp.INVOKES_LINKER and comp_args_from_envvar and link_args_from_envvar:
         # If the compiler acts as a linker driver, and we're using the
         # environment variable flags for both the compiler and linker
         # arguments, then put the compiler flags in the linker flags as well.

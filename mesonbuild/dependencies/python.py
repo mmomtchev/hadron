@@ -330,10 +330,12 @@ class PythonPkgConfigDependency(PkgConfigDependency, _PythonDependencyBase):
         # But not Apple, because it's a framework
         if self.env.machines.host.is_darwin() and 'PYTHONFRAMEWORKPREFIX' in self.variables:
             framework_prefix = self.variables['PYTHONFRAMEWORKPREFIX']
-            # Add rpath, will be de-duplicated if necessary
+            # Add rpath, will be de-duplicated if necessary
             if framework_prefix.startswith('/Applications/Xcode.app/'):
                 self.link_args += ['-Wl,-rpath,' + framework_prefix]
-                self.raw_link_args += ['-Wl,-rpath,' + framework_prefix]
+                if self.raw_link_args is not None:
+                    # When None, self.link_args is used
+                    self.raw_link_args += ['-Wl,-rpath,' + framework_prefix]
 
 class PythonFrameworkDependency(ExtraFrameworkDependency, _PythonDependencyBase):
 
@@ -350,8 +352,14 @@ class PythonSystemDependency(SystemDependency, _PythonDependencyBase):
         SystemDependency.__init__(self, name, environment, kwargs)
         _PythonDependencyBase.__init__(self, installation, kwargs.get('embed', False))
 
-        # match pkg-config behavior
-        if self.link_libpython:
+        # For most platforms, match pkg-config behavior. iOS is a special case;
+        # check for that first, so that check takes priority over
+        # `link_libpython` (which *shouldn't* be set, but just in case)
+        if self.platform.startswith('ios-'):
+            # iOS doesn't use link_libpython - it links with the *framework*.
+            self.link_args = ['-framework', 'Python', '-F', self.variables.get('prefix')]
+            self.is_found = True
+        elif self.link_libpython:
             # link args
             if mesonlib.is_windows():
                 self.find_libpy_windows(environment, limited_api=False)

@@ -529,7 +529,8 @@ class AllPlatformTests(BasePlatformTests):
         if self.backend is not Backend.ninja:
             raise SkipTest(f'{self.backend.name!r} backend can\'t install files')
         testdir = os.path.join(self.common_test_dir, '8 install')
-        self.init(testdir)
+        # sneak in a test that covers backend options...
+        self.init(testdir, extra_args=['-Dbackend_max_links=4'])
         intro = self.introspect('--targets')
         if intro[0]['type'] == 'executable':
             intro = intro[::-1]
@@ -4455,6 +4456,10 @@ class AllPlatformTests(BasePlatformTests):
         self.assertIn(f'TEST_C="{expected}"', o)
         self.assertIn('export TEST_C', o)
 
+        cmd = self.meson_command + ['devenv', '-C', self.builddir] + python_command + ['-c', 'import sys; sys.exit(42)']
+        result = subprocess.run(cmd, encoding='utf-8')
+        self.assertEqual(result.returncode, 42)
+
     def test_clang_format_check(self):
         if self.backend is not Backend.ninja:
             raise SkipTest(f'Skipping clang-format tests with {self.backend.name} backend')
@@ -5199,7 +5204,7 @@ class AllPlatformTests(BasePlatformTests):
                                  '10/10': [10],
                                  }.items():
             output = self._run(self.mtest_command + ['--slice=' + arg])
-            tests = sorted([ int(x[5:]) for x in re.findall(r'test-[0-9]*', output) ])
+            tests = sorted([ int(x) for x in re.findall(r'\n[ 0-9]+/[0-9]+ test-([0-9]*)', output) ])
             self.assertEqual(tests, expectation)
 
         for arg, expectation in {'': 'error: argument --slice: value does not conform to format \'SLICE/NUM_SLICES\'',
