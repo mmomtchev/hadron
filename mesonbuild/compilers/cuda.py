@@ -577,21 +577,12 @@ class CudaCompiler(Compiler):
 
         # Run sanity check (if possible)
         if self.is_cross:
-            if not env.has_exe_wrapper():
-                return
-            else:
-                cmdlist = env.exe_wrapper.get_command() + [binary_name]
-        else:
-            cmdlist = self.exelist + ['--run', '"' + binary_name + '"']
-        mlog.debug('Sanity check run command line: ', ' '.join(cmdlist))
-        pe, stdo, stde = Popen_safe(cmdlist, cwd=work_dir)
-        mlog.debug('Sanity check run stdout: ')
-        mlog.debug(stdo)
-        mlog.debug('-----\nSanity check run stderr:')
-        mlog.debug(stde)
-        mlog.debug('-----')
-        pe.wait()
-        if pe.returncode != 0:
+            return
+
+        cmdlist = self.exelist + ['--run', f'"{binary_name}"']
+        try:
+            stdo, stde = self.run_sanity_check(env, cmdlist, work_dir)
+        except EnvironmentException:
             raise EnvironmentException(f'Executables created by {self.language} compiler {self.name_string()} are not runnable.')
 
         # Interpret the result of the sanity test.
@@ -599,8 +590,6 @@ class CudaCompiler(Compiler):
         # architecture detection test.
         if stde == '':
             self.detected_cc = stdo
-        else:
-            mlog.debug('cudaGetDeviceCount() returned ' + stde)
 
     def has_header_symbol(self, hname: str, symbol: str, prefix: str,
                           env: 'Environment', *,
@@ -774,8 +763,8 @@ class CudaCompiler(Compiler):
         return self._to_host_flags(self.host_compiler.get_std_exe_link_args(), Phase.LINKER)
 
     def find_library(self, libname: str, env: 'Environment', extra_dirs: T.List[str],
-                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True) -> T.Optional[T.List[str]]:
-        return self.host_compiler.find_library(libname, env, extra_dirs, libtype, lib_prefix_warning)
+                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True, ignore_system_dirs: bool = False) -> T.Optional[T.List[str]]:
+        return self.host_compiler.find_library(libname, env, extra_dirs, libtype, lib_prefix_warning, ignore_system_dirs)
 
     def get_crt_compile_args(self, crt_val: str, buildtype: str) -> T.List[str]:
         return self._to_host_flags(self.host_compiler.get_crt_compile_args(crt_val, buildtype))

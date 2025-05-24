@@ -275,7 +275,7 @@ class Build:
         self.stdlibs = PerMachine({}, {})
         self.test_setups: T.Dict[str, TestSetup] = {}
         self.test_setup_default_name = None
-        self.find_overrides: T.Dict[str, T.Union['Executable', programs.ExternalProgram, programs.OverrideProgram]] = {}
+        self.find_overrides: T.Dict[str, T.Union['OverrideExecutable', programs.ExternalProgram, programs.OverrideProgram]] = {}
         self.searched_programs: T.Set[str] = set() # The list of all programs that have been searched for.
 
         # If we are doing a cross build we need two caches, if we're doing a
@@ -656,28 +656,10 @@ class Target(HoldableObject, metaclass=abc.ABCMeta):
             # set, use the value of 'install' if it's enabled.
             self.build_by_default = True
 
-        self.raw_overrides = self.parse_overrides(kwargs)
+        self.raw_overrides = kwargs.get('override_options', {})
 
     def get_override(self, name: str) -> T.Optional[str]:
         return self.raw_overrides.get(name, None)
-
-    @staticmethod
-    def parse_overrides(kwargs: T.Dict[str, T.Any]) -> T.Dict[str, str]:
-        opts = kwargs.get('override_options', [])
-
-        # In this case we have an already parsed and ready to go dictionary
-        # provided by typed_kwargs
-        if isinstance(opts, dict):
-            return T.cast('T.Dict[OptionKey, str]', opts)
-
-        result: T.Dict[str, str] = {}
-        overrides = stringlistify(opts)
-        for o in overrides:
-            if '=' not in o:
-                raise InvalidArguments('Overrides must be of form "key=value"')
-            k, v = o.split('=', 1)
-            result[k] = v
-        return result
 
     def is_linkable_target(self) -> bool:
         return False
@@ -2594,7 +2576,7 @@ class CommandBase:
     subproject: str
 
     def flatten_command(self, cmd: T.Sequence[T.Union[str, File, programs.ExternalProgram, BuildTargetTypes]]) -> \
-            T.List[T.Union[str, File, BuildTarget, 'CustomTarget']]:
+            T.List[T.Union[str, File, BuildTarget, CustomTarget, programs.ExternalProgram]]:
         cmd = listify(cmd)
         final_cmd: T.List[T.Union[str, File, BuildTarget, 'CustomTarget']] = []
         for c in cmd:
@@ -2611,7 +2593,8 @@ class CommandBase:
                     # Can only add a dependency on an external program which we
                     # know the absolute path of
                     self.depend_files.append(File.from_absolute_file(path))
-                final_cmd += c.get_command()
+                # Do NOT flatten -- it is needed for later parsing
+                final_cmd.append(c)
             elif isinstance(c, (BuildTarget, CustomTarget)):
                 self.dependencies.append(c)
                 final_cmd.append(c)
@@ -2681,6 +2664,7 @@ class CustomTarget(Target, CustomTargetBase, CommandBase):
                  install_dir: T.Optional[T.List[T.Union[str, Literal[False]]]] = None,
                  install_mode: T.Optional[FileMode] = None,
                  install_tag: T.Optional[T.List[T.Optional[str]]] = None,
+                 rspable: bool = False,
                  absolute_paths: bool = False,
                  backend: T.Optional['Backend'] = None,
                  description: str = 'Generating {} with a custom command',
@@ -2712,6 +2696,9 @@ class CustomTarget(Target, CustomTargetBase, CommandBase):
 
         # Whether to use absolute paths for all files on the commandline
         self.absolute_paths = absolute_paths
+
+        # Whether to enable using response files for the underlying tool
+        self.rspable = rspable
 
     def get_default_install_dir(self) -> T.Union[T.Tuple[str, str], T.Tuple[None, None]]:
         return None, None
@@ -3128,6 +3115,18 @@ class ConfigurationData(HoldableObject):
 
     def keys(self) -> T.Iterator[str]:
         return self.values.keys()
+
+class OverrideExecutable(Executable):
+    def __init__(self, executable: Executable, version: str):
+        self._executable = executable
+        self._version = version
+
+    def __getattr__(self, name: str) -> T.Any:
+        _executable = object.__getattribute__(self, '_executable')
+        return getattr(_executable, name)
+
+    def get_version(self, interpreter: T.Optional[Interpreter] = None) -> str:
+        return self._version
 
 # A bit poorly named, but this represents plain data files to copy
 # during install.

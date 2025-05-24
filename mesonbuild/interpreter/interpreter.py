@@ -115,6 +115,7 @@ if T.TYPE_CHECKING:
     from . import kwargs as kwtypes
     from ..backend.backends import Backend
     from ..interpreterbase.baseobjects import InterpreterObject, TYPE_var, TYPE_kwargs
+    from ..options import OptionDict
     from ..programs import OverrideProgram
     from .type_checking import SourcesVarargsType
 
@@ -270,7 +271,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                 subproject: str = '',
                 subdir: str = '',
                 subproject_dir: str = 'subprojects',
-                default_project_options: T.Optional[T.Dict[OptionKey, str]] = None,
+                invoker_method_default_options: T.Optional[T.Dict[OptionKey, str]] = None,
                 ast: T.Optional[mparser.CodeBlockNode] = None,
                 relaxations: T.Optional[T.Set[InterpreterRuleRelaxation]] = None,
                 user_defined_options: T.Optional[coredata.SharedCMDOptions] = None,
@@ -295,12 +296,11 @@ class Interpreter(InterpreterBase, HoldableObject):
         self.subproject_stack: T.List[str] = []
         self.configure_file_outputs: T.Dict[str, int] = {}
         # Passed from the outside, only used in subprojects.
-        if default_project_options:
-            self.default_project_options = default_project_options if isinstance(default_project_options, str) else default_project_options.copy()
-            if isinstance(default_project_options, dict):
-                pass
+        if invoker_method_default_options:
+            assert isinstance(invoker_method_default_options, dict)
+            self.invoker_method_default_options = invoker_method_default_options
         else:
-            self.default_project_options = {}
+            self.invoker_method_default_options = {}
         self.project_default_options: T.List[str] = []
         self.build_func_dict()
         self.build_holder_map()
@@ -426,6 +426,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             build.Generator: OBJ.GeneratorHolder,
             build.GeneratedList: OBJ.GeneratedListHolder,
             build.ExtractedObjects: OBJ.GeneratedObjectsHolder,
+            build.OverrideExecutable: OBJ.OverrideExecutableHolder,
             build.RunTarget: OBJ.RunTargetHolder,
             build.AliasTarget: OBJ.AliasTargetHolder,
             build.Headers: OBJ.HeadersHolder,
@@ -868,7 +869,8 @@ class Interpreter(InterpreterBase, HoldableObject):
         self.subprojects[subp_name] = sub
         return sub
 
-    def do_subproject(self, subp_name: str, kwargs: kwtypes.DoSubproject, force_method: T.Optional[wrap.Method] = None) -> SubprojectHolder:
+    def do_subproject(self, subp_name: str, kwargs: kwtypes.DoSubproject, force_method: T.Optional[wrap.Method] = None,
+                      extra_default_options: T.Optional[OptionDict] = None) -> SubprojectHolder:
         if subp_name == 'sub_static':
             pass
         disabled, required, feature = extract_required_kwarg(kwargs, self.subproject)
@@ -878,6 +880,8 @@ class Interpreter(InterpreterBase, HoldableObject):
             return self.disabled_subproject(subp_name, disabled_feature=feature)
 
         default_options = kwargs['default_options']
+        if extra_default_options:
+            default_options = {**extra_default_options, **default_options}
 
         if subp_name == '':
             raise InterpreterException('Subproject name must not be empty.')
@@ -952,7 +956,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             raise e
 
     def _do_subproject_meson(self, subp_name: str, subdir: str,
-                             default_options: T.List[str],
+                             default_options: T.Dict[str, options.ElementaryOptionValues],
                              kwargs: kwtypes.DoSubproject,
                              ast: T.Optional[mparser.CodeBlockNode] = None,
                              build_def_files: T.Optional[T.List[str]] = None,
@@ -1012,7 +1016,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         return self.subprojects[subp_name]
 
     def _do_subproject_cmake(self, subp_name: str, subdir: str,
-                             default_options: T.List[str],
+                             default_options: T.Dict[str, options.ElementaryOptionValues],
                              kwargs: kwtypes.DoSubproject) -> SubprojectHolder:
         from ..cmake import CMakeInterpreter
         with mlog.nested(subp_name):
@@ -1039,7 +1043,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         return result
 
     def _do_subproject_cargo(self, subp_name: str, subdir: str,
-                             default_options: T.List[str],
+                             default_options: T.Dict[str, options.ElementaryOptionValues],
                              kwargs: kwtypes.DoSubproject) -> SubprojectHolder:
         from .. import cargo
         FeatureNew.single_use('Cargo subproject', '1.3.0', self.subproject, location=self.current_node)
@@ -1193,14 +1197,27 @@ class Interpreter(InterpreterBase, HoldableObject):
                                                                               self.user_defined_options.cmd_line_options,
                                                                               self.environment.options)
             else:
-                invoker_method_default_options = self.default_project_options
                 self.coredata.optstore.initialize_from_subproject_call(self.subproject,
-                                                                       invoker_method_default_options,
+                                                                       self.invoker_method_default_options,
                                                                        self.project_default_options,
                                                                        self.user_defined_options.cmd_line_options)
                 self.coredata.initialized_subprojects.add(self.subproject)
 
         if not self.is_subproject():
+            # We have to activate VS before adding languages and before calling
+            # self.set_backend() otherwise it wouldn't be able to detect which
+            # vs backend version we need. But after setting default_options in case
+            # the project sets vs backend by default.
+            backend = self.coredata.optstore.get_value_for(OptionKey('backend'))
+            assert backend is None or isinstance(backend, str), 'for mypy'
+            vsenv = self.coredata.optstore.get_value_for(OptionKey('vsenv'))
+            assert isinstance(vsenv, bool), 'for mypy'
+            force_vsenv = vsenv or backend.startswith('vs')
+            mesonlib.setup_vsenv(force_vsenv)
+        self.set_backend()
+
+        if not self.is_subproject():
+            self.coredata.optstore.validate_cmd_line_options(self.user_defined_options.cmd_line_options)
             self.build.project_name = proj_name
         self.active_projectname = proj_name
 
@@ -1281,22 +1298,9 @@ class Interpreter(InterpreterBase, HoldableObject):
         mlog.log('Project name:', mlog.bold(proj_name))
         mlog.log('Project version:', mlog.bold(self.project_version))
 
-        if not self.is_subproject():
-            # We have to activate VS before adding languages and before calling
-            # self.set_backend() otherwise it wouldn't be able to detect which
-            # vs backend version we need. But after setting default_options in case
-            # the project sets vs backend by default.
-            backend = self.coredata.optstore.get_value_for(OptionKey('backend'))
-            assert backend is None or isinstance(backend, str), 'for mypy'
-            vsenv = self.coredata.optstore.get_value_for(OptionKey('vsenv'))
-            assert isinstance(vsenv, bool), 'for mypy'
-            force_vsenv = vsenv or backend.startswith('vs')
-            mesonlib.setup_vsenv(force_vsenv)
-
         self.add_languages(proj_langs, True, MachineChoice.HOST)
         self.add_languages(proj_langs, False, MachineChoice.BUILD)
 
-        self.set_backend()
         if not self.is_subproject():
             self.check_stdlibs()
 
@@ -1539,7 +1543,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                     self.backend.allow_thin_archives[for_machine] = False
             else:
                 # update new values from commandline, if it applies
-                self.coredata.process_compiler_options(lang, comp, self.environment, self.subproject)
+                self.coredata.process_compiler_options(lang, comp, self.subproject)
 
             if for_machine == MachineChoice.HOST or self.environment.is_cross_build():
                 logger_fun = mlog.log
@@ -1600,7 +1604,7 @@ class Interpreter(InterpreterBase, HoldableObject):
 
     def program_from_overrides(self, command_names: T.List[mesonlib.FileOrString],
                                extra_info: T.List['mlog.TV_Loggable']
-                               ) -> T.Optional[T.Union[ExternalProgram, OverrideProgram, build.Executable]]:
+                               ) -> T.Optional[T.Union[ExternalProgram, OverrideProgram, build.OverrideExecutable]]:
         for name in command_names:
             if not isinstance(name, str):
                 continue
@@ -1615,7 +1619,7 @@ class Interpreter(InterpreterBase, HoldableObject):
             if isinstance(name, str):
                 self.build.searched_programs.add(name)
 
-    def add_find_program_override(self, name: str, exe: T.Union[build.Executable, ExternalProgram, 'OverrideProgram']) -> None:
+    def add_find_program_override(self, name: str, exe: T.Union[build.OverrideExecutable, ExternalProgram, 'OverrideProgram']) -> None:
         if name in self.build.searched_programs:
             raise InterpreterException(f'Tried to override finding of executable "{name}" which has already been found.')
         if name in self.build.find_overrides:
@@ -1640,7 +1644,7 @@ class Interpreter(InterpreterBase, HoldableObject):
                           search_dirs: T.Optional[T.List[str]] = None,
                           version_arg: T.Optional[str] = '',
                           version_func: T.Optional[ProgramVersionFunc] = None
-                          ) -> T.Union['ExternalProgram', 'build.Executable', 'OverrideProgram']:
+                          ) -> T.Union['ExternalProgram', 'build.OverrideExecutable', 'OverrideProgram']:
         args = mesonlib.listify(args)
 
         extra_info: T.List[mlog.TV_Loggable] = []

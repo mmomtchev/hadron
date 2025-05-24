@@ -353,18 +353,9 @@ class NapiModule(ExtensionModule):
             inc_dir = self.node_addon_api_package['include'].strip('\"')
             node_addon_api_dir = self.relativize(inc_dir, source_dir)
             kwargs.setdefault('include_directories', []).extend([str(node_addon_api_dir)])
-            # It seems tht the options may be parsed or may be not
-            # TODO: The casting is very ugly, check if there
-            # is a better solution
-            override_options: list[str] = []
-            if isinstance(kwargs['override_options'], dict):
-                assert len(kwargs['override_options']) == 0
-            else:
-                override_options = T.cast('list[str]', kwargs['override_options'])
             # The default C++ standard when using node-addon-api should be C++20
-            if not any(opt.startswith('cpp_std') for opt in override_options):
-                override_options += ['cpp_std=c++20']
-            kwargs['override_options'] = T.cast('dict[OptionKey, str | int | bool | list[str]]', override_options)
+            if 'cpp_std' not in kwargs.setdefault('override_options', {}):
+                kwargs['override_options'][T.cast(OptionKey, 'cpp_std')] = 'c++20'
 
         if self.napi_includes:
             napi_includes = self.relativize(self.napi_includes, source_dir)

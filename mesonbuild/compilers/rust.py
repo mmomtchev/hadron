@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import functools
-import subprocess, os.path
+import os.path
 import textwrap
 import re
 import typing as T
@@ -141,17 +141,7 @@ class RustCompiler(Compiler):
         if pc.returncode != 0:
             raise EnvironmentException(f'Rust compiler {self.name_string()} cannot compile programs.')
         self._native_static_libs(work_dir, source_name)
-        if self.is_cross:
-            if not environment.has_exe_wrapper():
-                # Can't check if the binaries run so we have to assume they do
-                return
-            cmdlist = environment.exe_wrapper.get_command() + [output_name]
-        else:
-            cmdlist = [output_name]
-        pe = subprocess.Popen(cmdlist, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        pe.wait()
-        if pe.returncode != 0:
-            raise EnvironmentException(f'Executables created by Rust compiler {self.name_string()} are not runnable.')
+        self.run_sanity_check(environment, [output_name], work_dir)
 
     def _native_static_libs(self, work_dir: str, source_name: str) -> None:
         # Get libraries needed to link with a Rust staticlib
@@ -327,11 +317,11 @@ class RustCompiler(Compiler):
         return exelist + args
 
     def has_multi_arguments(self, args: T.List[str], env: Environment) -> T.Tuple[bool, bool]:
-        return self.compiles('fn main { std::process::exit(0) };\n', env, extra_args=args, mode=CompileCheckMode.COMPILE)
+        return self.compiles('fn main() { std::process::exit(0) }\n', env, extra_args=args, mode=CompileCheckMode.COMPILE)
 
     def has_multi_link_arguments(self, args: T.List[str], env: Environment) -> T.Tuple[bool, bool]:
         args = self.linker.fatal_warnings() + args
-        return self.compiles('fn main { std::process::exit(0) };\n', env, extra_args=args, mode=CompileCheckMode.LINK)
+        return self.compiles('fn main() { std::process::exit(0) }\n', env, extra_args=args, mode=CompileCheckMode.LINK)
 
     @functools.lru_cache(maxsize=None)
     def get_rustdoc(self, env: 'Environment') -> T.Optional[RustdocTestCompiler]:
