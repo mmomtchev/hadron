@@ -288,7 +288,9 @@ class NapiModule(ExtensionModule):
             opt = build_opts.get_value_object(key)
             if isinstance(opt.value, str):
                 if 'npm_config_' + key.name in os.environ:
-                    opt.set_value(os.environ['npm_config_' + key.name])
+                    value = os.environ['npm_config_' + key.name]
+                    opt.set_value(value)
+                    mlog.log(f'npm config: {key.name} [string]: ', mlog.bold('f"{value}"'))
             if isinstance(opt.value, bool):
                 npm_enable = 'npm_config_enable_' + key.name in os.environ
                 npm_disable = 'npm_config_disable_' + key.name in os.environ
@@ -298,11 +300,14 @@ class NapiModule(ExtensionModule):
                     opt.set_value(l.index('npm_config_enable_' + key.name) > l.index('npm_config_disable_' + key.name))
                 elif npm_enable:
                     opt.set_value(True)
+                    mlog.log(f'npm config: {key.name} [bool]: ', mlog.bold('True'))
                 elif npm_disable:
                     opt.set_value(False)
+                    mlog.log(f'npm config: {key.name} [bool]: ', mlog.bold('False'))
             if isinstance(opt.value, list):
                 if 'npm_config_' + key.name in os.environ:
                     T.cast('options.UserArrayOption', opt).extend_value(os.environ['npm_config_' + key.name])
+                    mlog.log(f'npm config: {key.name} [list]: ', mlog.bold(str(opt.printable_value())))
 
     @permittedKwargs(mod_kwargs)
     @typed_pos_args('node-api.extension_module', str, varargs=(str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget))
