@@ -236,6 +236,7 @@ class ConverterTarget:
         self.install = target.install
         self.install_dir: T.Optional[Path] = None
         self.link_libraries = target.link_libraries
+        self.link_targets: T.List[str] = []
         self.link_flags = target.link_flags + target.link_lang_flags
         self.public_link_flags: T.List[str] = []
         self.depends_raw: T.List[str] = []
@@ -1006,17 +1007,27 @@ class CMakeInterpreter:
                 object_libs += [tgt]
             self.languages += [x for x in tgt.languages if x not in self.languages]
 
-        # Second pass: Detect object library dependencies
+        # Second pass: Populate link_with project internal targets
+        for tgt in self.targets:
+            for i in tgt.link_targets:
+                # Handle target-based link libraries
+                link_with = self.output_target_map.target(i)
+                if not link_with or isinstance(link_with, ConverterCustomTarget):
+                    # Generated file etc.
+                    continue
+                tgt.link_with.append(link_with)
+
+        # Third pass: Detect object library dependencies
         for tgt in self.targets:
             tgt.process_object_libs(object_libs, self._object_lib_workaround)
 
-        # Third pass: Reassign dependencies to avoid some loops
+        # Fourth pass: Reassign dependencies to avoid some loops
         for tgt in self.targets:
             tgt.process_inter_target_dependencies()
         for ctgt in self.custom_targets:
             ctgt.process_inter_target_dependencies()
 
-        # Fourth pass: Remove rassigned dependencies
+        # Fifth pass: Remove reassigned dependencies
         for tgt in self.targets:
             tgt.cleanup_dependencies()
 
