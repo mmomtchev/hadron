@@ -1,12 +1,13 @@
 {
-  "env": {
-    "npm_config_enable_enabled": "true",
-    "npm_config_disable_disabled": "true",
-    "npm_config_string": "string",
-    "npm_config_choice": "a",
-    "npm_config_lib": "enabled",
-    "npm_config_array": "a,b,c",
-    "npm_config_prefix": "y:/bad_prefix"
+  "matrix": {
+    "options": {
+      "enabled": [ { "val": true } ],
+      "disabled": [ { "val": false } ],
+      "string": [ { "val": "string" } ],
+      "choice": [ { "val": "a" } ],
+      "lib": [ { "val": "enabled" } ],
+      "array": [ { "val": "a,b,c" } ]
+    }
   },
   "installed": [
     {"type": "js_module_main", "file": "usr/hello_world"},
