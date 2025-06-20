@@ -83,11 +83,6 @@ swig_cpp_defaults = {
     'msvc': ['/wo6246', '/wo28182'],
     'emscripten': swig_cpp_defaults_clang
 }
-# These are options that have special (and incompatible) meaning in both npm and meson
-# Keep them apart
-npm_config_blacklist = [
-    'prefix'
-]
 
 if T.TYPE_CHECKING:
     class ExtensionModuleKw(SharedModuleKw):
@@ -124,7 +119,6 @@ class NapiModule(ExtensionModule):
             'extension_module': self.extension_module_method,
             'test': self.test_method,
         })
-        self.parse_npm_options()
 
     def parse_node_json_output(self, code: str) -> Any:
         result: Any = None
@@ -279,35 +273,6 @@ class NapiModule(ExtensionModule):
     def emnapi_js_library(self, source_root: Path) -> Path:
         js_lib: str = self.emnapi_package['js_library']
         return Path(js_lib)
-
-    def parse_npm_options(self) -> None:
-        build_opts = self.interpreter.environment.coredata.optstore
-        for key in build_opts.keys():
-            if key.name in npm_config_blacklist:
-                continue
-            opt = build_opts.get_value_object(key)
-            if isinstance(opt.value, str):
-                if 'npm_config_' + key.name in os.environ:
-                    value = os.environ['npm_config_' + key.name]
-                    opt.set_value(value)
-                    mlog.log(f'npm config: {key.name} [string]: ', mlog.bold('f"{value}"'))
-            if isinstance(opt.value, bool):
-                npm_enable = 'npm_config_enable_' + key.name in os.environ
-                npm_disable = 'npm_config_disable_' + key.name in os.environ
-                if npm_enable and npm_disable:
-                    l = list(os.environ.keys())
-                    mlog.warning(f'Found both --enable-{key.name} and --disable-{key.name}, last one wins')
-                    opt.set_value(l.index('npm_config_enable_' + key.name) > l.index('npm_config_disable_' + key.name))
-                elif npm_enable:
-                    opt.set_value(True)
-                    mlog.log(f'npm config: {key.name} [bool]: ', mlog.bold('True'))
-                elif npm_disable:
-                    opt.set_value(False)
-                    mlog.log(f'npm config: {key.name} [bool]: ', mlog.bold('False'))
-            if isinstance(opt.value, list):
-                if 'npm_config_' + key.name in os.environ:
-                    T.cast('options.UserArrayOption', opt).extend_value(os.environ['npm_config_' + key.name])
-                    mlog.log(f'npm config: {key.name} [list]: ', mlog.bold(str(opt.printable_value())))
 
     @permittedKwargs(mod_kwargs)
     @typed_pos_args('node-api.extension_module', str, varargs=(str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget))
