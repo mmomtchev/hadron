@@ -70,15 +70,4 @@ jobs:
         cd $GITHUB_WORKSPACE
         ./run_tests.py $CI_ARGS --cross node-api-emscripten.json --cross-only --only "node-api/node-api/1 hello_world"
     - name: Run tests
-      run: bash -c 'source /ci/env_vars.sh; cd $GITHUB_WORKSPACE; ./tools/run_with_cov.py ./run_tests.py $CI_ARGS --cross node-api-emscripten.json --cross-only --only node-api'
-
-    - name: Aggregate coverage reports
-      run: ./ci/combine_cov.sh
-
-    - name: Upload coverage report
-      uses: codecov/codecov-action@v3
-      with:
-        files: .coverage/coverage.xml
-        name: "Ubuntu nonnative"
-        fail_ci_if_error: false
-        verbose: true
+      run: bash -c 'source /ci/env_vars.sh; cd $GITHUB_WORKSPACE; ./run_tests.py $CI_ARGS --cross node-api-emscripten.json --cross-only --only node-api'
