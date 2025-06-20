@@ -5,6 +5,12 @@ import * as path from 'node:path';
 
 import { assert } from 'chai';
 
+// Test that the environment option works as expected
+// and the generated loader does not work in web
+// environment
+
+globalThis.window = {};
+
 import(path.resolve(env.NODE_PATH, env.NODE_ADDON))
   .then((m) => m.default())
   .then((r) => {

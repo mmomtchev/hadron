@@ -16,6 +16,7 @@ addon = napi.extension_module(
 
 if host_machine.system() == 'emscripten'
   napi.test('hello_world_test', 'test-wasm.mjs', addon)
+  napi.test('environment_test', 'test-wasm-noweb.mjs', addon, should_fail: true)
 else
   napi.test('hello_world_test', 'test-native.cjs', addon)
 endif
