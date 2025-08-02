@@ -110,9 +110,12 @@ def resolve_cmake_trace_targets(target_name: str,
         return [f'-l{lib}'], []
 
     def resolve_all_cmake_libs(libs: T.List[str]) -> T.Tuple[T.List[str], T.List[str]]:
-        private, public: T.List[str] = []
+        private: T.List[str] = []
+        public: T.List[str] = []
         for l in libs:
-            private, public += resolve_cmake_lib(l)
+            r, p = resolve_cmake_lib(l)
+            private += r
+            public += p
         return private, public
 
     processed_targets: T.List[str] = []
@@ -124,7 +127,9 @@ def resolve_cmake_trace_targets(target_name: str,
             continue
 
         if curr not in trace.targets:
-            res.libraries, res.public_compile_opts += resolve_cmake_lib(curr)
+            r, p = resolve_cmake_lib(curr)
+            res.libraries += r
+            res.public_compile_opts += p
             continue
 
         tgt = trace.targets[curr]
@@ -144,8 +149,12 @@ def resolve_cmake_trace_targets(target_name: str,
             res.public_compile_opts += [x for x in tgt.properties['INTERFACE_COMPILE_OPTIONS'] if x]
 
         if tgt.imported:
-            res.libraries += resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace))
-            res.libraries += resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace))
+            r, p = resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace))
+            res.libraries += r
+            res.public_compile_opts += p
+            r, p = resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace))
+            res.libraries += r
+            res.public_compile_opts += p
         elif tgt.target:
             # FIXME: mesonbuild/cmake/interpreter.py#363: probably belongs here
             # now that the ConverterTarget and the CMakeTraceTarget are linked
@@ -156,14 +165,20 @@ def resolve_cmake_trace_targets(target_name: str,
 
         if 'LINK_LIBRARIES' in tgt.properties:
             targets += [x for x in tgt.properties['LINK_LIBRARIES'] if x and x in trace.targets]
-            res.libraries += resolve_all_cmake_libs([x for x in tgt.properties['LINK_LIBRARIES'] if x and x not in trace.targets])
+            r, p = resolve_all_cmake_libs([x for x in tgt.properties['LINK_LIBRARIES'] if x and x not in trace.targets])
+            res.libraries += r
+            res.public_compile_opts += p
         if 'INTERFACE_LINK_LIBRARIES' in tgt.properties:
             targets += [x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x in trace.targets]
-            res.libraries += resolve_all_cmake_libs([x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x not in trace.targets])
+            r, p = resolve_all_cmake_libs([x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x not in trace.targets])
+            res.libraries += r
+            res.public_compile_opts += p
         if 'LINK_DIRECTORIES' in tgt.properties:
             res.link_flags += [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['LINK_DIRECTORIES'] if x]
         if 'INTERFACE_LINK_DIRECTORIES' in tgt.properties:
-            res.link_flags += [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['INTERFACE_LINK_DIRECTORIES'] if x]
+            ild = [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['INTERFACE_LINK_DIRECTORIES'] if x]
+            res.link_flags += ild
+            res.public_compile_opts += ild
         if 'INSTALL_RPATH' in tgt.properties:
             res.install_rpath = ':'.join(tgt.properties['INSTALL_RPATH'])
         if 'BUILD_RPATH' in tgt.properties:
