@@ -57,7 +57,21 @@ WHITELIST_SUBDOMAIN = 'wrapdb.mesonbuild.com'
 
 ALL_TYPES = ['file', 'git', 'hg', 'svn', 'redirect']
 
-PATCH = shutil.which('patch')
+if mesonlib.is_windows():
+    from ..programs import ExternalProgram
+    from ..mesonlib import version_compare
+    _exclude_paths: T.List[str] = []
+    while True:
+        _patch = ExternalProgram('patch', silent=True, exclude_paths=_exclude_paths)
+        if not _patch.found():
+            break
+        if version_compare(_patch.get_version(), '>=2.6.1'):
+            break
+        _exclude_paths.append(os.path.dirname(_patch.get_path()))
+    PATCH = _patch.get_path() if _patch.found() else None
+else:
+    PATCH = shutil.which('patch')
+
 
 def whitelist_wrapdb(urlstr: str) -> urllib.parse.ParseResult:
     """ raises WrapException if not whitelisted subdomain """
@@ -233,6 +247,15 @@ class PackageDefinition:
         wrap.original_filename = filename
         wrap.parse_provide_section(config)
 
+        patch_url = values.get('patch_url')
+        if patch_url and patch_url.startswith('https://wrapdb.mesonbuild.com/v1'):
+            if name == 'sqlite':
+                mlog.deprecation('sqlite wrap has been renamed to sqlite3, update using `meson wrap install sqlite3`')
+            elif name == 'libjpeg':
+                mlog.deprecation('libjpeg wrap has been renamed to libjpeg-turbo, update using `meson wrap install libjpeg-turbo`')
+            else:
+                mlog.deprecation(f'WrapDB v1 is deprecated, updated using `meson wrap update {name}`')
+
         with open(filename, 'r', encoding='utf-8') as file:
             wrap.wrapfile_hash = hashlib.sha256(file.read().encode('utf-8')).hexdigest()
 
@@ -331,6 +354,7 @@ class Resolver:
         self.wrapdb: T.Dict[str, T.Any] = {}
         self.wrapdb_provided_deps: T.Dict[str, str] = {}
         self.wrapdb_provided_programs: T.Dict[str, str] = {}
+        self.loaded_dirs: T.Set[str] = set()
         self.load_wraps()
         self.load_netrc()
         self.load_wrapdb()
@@ -372,6 +396,7 @@ class Resolver:
         # Add provided deps and programs into our lookup tables
         for wrap in self.wraps.values():
             self.add_wrap(wrap)
+        self.loaded_dirs.add(self.subdir)
 
     def add_wrap(self, wrap: PackageDefinition) -> None:
         for k in wrap.provided_deps.keys():
@@ -416,16 +441,25 @@ class Resolver:
 
     def _merge_wraps(self, other_resolver: 'Resolver') -> None:
         for k, v in other_resolver.wraps.items():
-            self.wraps.setdefault(k, v)
-        for k, v in other_resolver.provided_deps.items():
-            self.provided_deps.setdefault(k, v)
-        for k, v in other_resolver.provided_programs.items():
-            self.provided_programs.setdefault(k, v)
+            prev_wrap = self.wraps.get(v.directory)
+            if prev_wrap and prev_wrap.type is None and v.type is not None:
+                # This happens when a subproject has been previously downloaded
+                # using a wrap from another subproject and the wrap-redirect got
+                # deleted. In that case, the main project created a bare wrap
+                # for the download directory, but now we have a proper wrap.
+                # It also happens for wraps coming from Cargo.lock files, which
+                # don't create wrap-redirect.
+                del self.wraps[v.directory]
+                del self.provided_deps[v.directory]
+            if k not in self.wraps:
+                self.wraps[k] = v
+                self.add_wrap(v)
 
     def load_and_merge(self, subdir: str, subproject: SubProject) -> None:
-        if self.wrap_mode != WrapMode.nopromote:
+        if self.wrap_mode != WrapMode.nopromote and subdir not in self.loaded_dirs:
             other_resolver = Resolver(self.source_dir, subdir, subproject, self.wrap_mode, self.wrap_frontend, self.allow_insecure, self.silent)
             self._merge_wraps(other_resolver)
+            self.loaded_dirs.add(subdir)
 
     def find_dep_provider(self, packagename: str) -> T.Tuple[T.Optional[str], T.Optional[str]]:
         # Python's ini parser converts all key values to lowercase.
@@ -720,6 +754,23 @@ class Resolver:
             resp = open_wrapdburl(urlstring, allow_insecure=self.allow_insecure, have_opt=self.wrap_frontend)
         elif WHITELIST_SUBDOMAIN in urlstring:
             raise WrapException(f'{urlstring} may be a WrapDB-impersonating URL')
+        elif url.scheme == 'sftp':
+            sftp = shutil.which('sftp')
+            if sftp is None:
+                raise WrapException('Scheme sftp is not available. Install sftp to enable it.')
+            with tempfile.TemporaryDirectory() as workdir, \
+                    tempfile.NamedTemporaryFile(mode='wb', dir=self.cachedir, delete=False) as tmpfile:
+                args = []
+                # Older versions of the sftp client cannot handle URLs, hence the splitting of url below
+                if url.port:
+                    args += ['-P', f'{url.port}']
+                user = f'{url.username}@' if url.username else ''
+                command = [sftp, '-o', 'KbdInteractiveAuthentication=no', *args, f'{user}{url.hostname}:{url.path[1:]}']
+                subprocess.run(command, cwd=workdir, check=True)
+                downloaded = os.path.join(workdir, os.path.basename(url.path))
+                tmpfile.close()
+                shutil.move(downloaded, tmpfile.name)
+                return self.hash_file(tmpfile.name), tmpfile.name
         else:
             headers = {
                 'User-Agent': f'mesonbuild/{coredata.version}',
@@ -744,7 +795,7 @@ class Resolver:
                 resp = urllib.request.urlopen(req, timeout=REQ_TIMEOUT)
             except OSError as e:
                 mlog.log(str(e))
-                raise WrapException(f'could not get {urlstring} is the internet available?')
+                raise WrapException(f'could not get {urlstring}; is the internet available?')
         with contextlib.closing(resp) as resp, tmpfile as tmpfile:
             try:
                 dlsize = int(resp.info()['Content-Length'])
@@ -775,14 +826,17 @@ class Resolver:
             hashvalue = h.hexdigest()
         return hashvalue, tmpfile.name
 
+    def hash_file(self, path: str) -> str:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            h.update(f.read())
+        return h.hexdigest()
+
     def check_hash(self, what: str, path: str, hash_required: bool = True) -> None:
         if what + '_hash' not in self.wrap.values and not hash_required:
             return
         expected = self.wrap.get(what + '_hash').lower()
-        h = hashlib.sha256()
-        with open(path, 'rb') as f:
-            h.update(f.read())
-        dhash = h.hexdigest()
+        dhash = self.hash_file(path)
         if dhash != expected:
             raise WrapException(f'Incorrect hash for {what}:\n {expected} expected\n {dhash} actual.')
 

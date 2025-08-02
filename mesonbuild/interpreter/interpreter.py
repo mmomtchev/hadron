@@ -523,6 +523,8 @@ class Interpreter(InterpreterBase, HoldableObject):
                     self.handle_meson_version(val.value, val)
 
     def get_build_def_files(self) -> mesonlib.OrderedSet[str]:
+        if self.environment.cargo:
+            self.build_def_files.update(self.environment.cargo.get_build_def_files())
         return self.build_def_files
 
     def add_build_def_file(self, f: mesonlib.FileOrString) -> None:
@@ -1085,7 +1087,7 @@ class Interpreter(InterpreterBase, HoldableObject):
         value_object: T.Optional[options.AnyOptionType]
 
         try:
-            optkey = options.OptionKey(optname, self.subproject)
+            optkey = options.OptionKey.from_string(optname).evolve(subproject=self.subproject)
             value_object, value = self.coredata.optstore.get_value_object_and_value_for(optkey)
         except KeyError:
             if self.coredata.optstore.is_base_option(optkey):
@@ -3266,9 +3268,9 @@ class Interpreter(InterpreterBase, HoldableObject):
     def build_both_libraries(self, node: mparser.BaseNode, args: T.Tuple[str, SourcesVarargsType], kwargs: kwtypes.Library) -> build.BothLibraries:
         shared_lib = self.build_target(node, args, kwargs, build.SharedLibrary)
         static_lib = self.build_target(node, args, kwargs, build.StaticLibrary)
-        preferred_library = self.coredata.optstore.get_value_for(OptionKey('default_both_libraries'))
+        preferred_library = self.coredata.optstore.get_value_for(OptionKey('default_both_libraries', subproject=self.subproject))
         if preferred_library == 'auto':
-            preferred_library = self.coredata.optstore.get_value_for(OptionKey('default_library'))
+            preferred_library = self.coredata.optstore.get_value_for(OptionKey('default_library', subproject=self.subproject))
             if preferred_library == 'both':
                 preferred_library = 'shared'
 

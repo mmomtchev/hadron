@@ -65,10 +65,10 @@ def resolve_cmake_trace_targets(target_name: str,
 
     # CMake library specs (when not referring to a CMake target) can be
     # files or library names, prefixed w/ -l or w/o
-    def resolve_cmake_lib(lib: str) -> T.List[str]:
+    def resolve_cmake_lib(lib: str) -> T.Tuple[T.List[str], T.List[str]]:
         curr_path = Path(lib)
         if reg_is_lib.match(lib):
-            return [lib]
+            return [lib], []
         elif curr_path.is_absolute() and curr_path.exists():
             if any(x.endswith('.framework') for x in curr_path.parts):
                 # Frameworks detected by CMake are passed as absolute paths
@@ -82,9 +82,9 @@ def resolve_cmake_trace_targets(target_name: str,
                 curr_path = Path(*path_to_framework)
                 framework_path = curr_path.parent
                 framework_name = curr_path.stem
-                return [f'-F{framework_path}', '-framework', framework_name]
+                return [f'-F{framework_path}', '-framework', framework_name], [f'-F{framework_path}']
             else:
-                return [lib]
+                return [lib], []
         elif reg_is_maybe_bare_lib.match(lib) and clib_compiler:
             # CMake library dependencies can be passed as bare library names,
             # CMake brute-forces a combination of prefix/suffix combinations to find the
@@ -92,11 +92,11 @@ def resolve_cmake_trace_targets(target_name: str,
             # target must be a system library we should try to link against.
             flib = clib_compiler.find_library(lib, env, [])
             if flib is not None:
-                return flib
+                return flib, []
             else:
                 not_found_warning(lib)
         elif curr_path.is_absolute() or lib.startswith('-'):
-            return [lib]
+            return [lib], []
         elif '::' in lib:
             # Bug-compatibility with upstream meson!!!
             # The frameworks/30 scalapack unit test uses a broken CMake config
@@ -105,15 +105,18 @@ def resolve_cmake_trace_targets(target_name: str,
             # But this is definitely not the best way to behave
             # (the same config file has also a number of other issues)
             not_found_warning(lib)
-            return []
+            return [], []
 
-        return [f'-l{lib}']
+        return [f'-l{lib}'], []
 
-    def resolve_all_cmake_libs(libs: T.List[str]) -> T.List[str]:
-        r: T.List[str] = []
+    def resolve_all_cmake_libs(libs: T.List[str]) -> T.Tuple[T.List[str], T.List[str]]:
+        private: T.List[str] = []
+        public: T.List[str] = []
         for l in libs:
-            r += resolve_cmake_lib(l)
-        return r
+            r, p = resolve_cmake_lib(l)
+            private += r
+            public += p
+        return private, public
 
     processed_targets: T.List[str] = []
     while len(targets) > 0:
@@ -124,7 +127,9 @@ def resolve_cmake_trace_targets(target_name: str,
             continue
 
         if curr not in trace.targets:
-            res.libraries += resolve_cmake_lib(curr)
+            r, p = resolve_cmake_lib(curr)
+            res.libraries += r
+            res.public_compile_opts += p
             continue
 
         tgt = trace.targets[curr]
@@ -144,8 +149,12 @@ def resolve_cmake_trace_targets(target_name: str,
             res.public_compile_opts += [x for x in tgt.properties['INTERFACE_COMPILE_OPTIONS'] if x]
 
         if tgt.imported:
-            res.libraries += resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace))
-            res.libraries += resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace))
+            r, p = resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_IMPLIB', trace))
+            res.libraries += r
+            res.public_compile_opts += p
+            r, p = resolve_all_cmake_libs(get_config_declined_property(tgt, 'IMPORTED_LOCATION', trace))
+            res.libraries += r
+            res.public_compile_opts += p
         elif tgt.target:
             # FIXME: mesonbuild/cmake/interpreter.py#363: probably belongs here
             # now that the ConverterTarget and the CMakeTraceTarget are linked
@@ -156,14 +165,20 @@ def resolve_cmake_trace_targets(target_name: str,
 
         if 'LINK_LIBRARIES' in tgt.properties:
             targets += [x for x in tgt.properties['LINK_LIBRARIES'] if x and x in trace.targets]
-            res.libraries += resolve_all_cmake_libs([x for x in tgt.properties['LINK_LIBRARIES'] if x and x not in trace.targets])
+            r, p = resolve_all_cmake_libs([x for x in tgt.properties['LINK_LIBRARIES'] if x and x not in trace.targets])
+            res.libraries += r
+            res.public_compile_opts += p
         if 'INTERFACE_LINK_LIBRARIES' in tgt.properties:
             targets += [x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x in trace.targets]
-            res.libraries += resolve_all_cmake_libs([x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x not in trace.targets])
+            r, p = resolve_all_cmake_libs([x for x in tgt.properties['INTERFACE_LINK_LIBRARIES'] if x and x not in trace.targets])
+            res.libraries += r
+            res.public_compile_opts += p
         if 'LINK_DIRECTORIES' in tgt.properties:
             res.link_flags += [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['LINK_DIRECTORIES'] if x]
         if 'INTERFACE_LINK_DIRECTORIES' in tgt.properties:
-            res.link_flags += [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['INTERFACE_LINK_DIRECTORIES'] if x]
+            ild = [(f'-L{x}' if not x.startswith('-') else x) for x in tgt.properties['INTERFACE_LINK_DIRECTORIES'] if x]
+            res.link_flags += ild
+            res.public_compile_opts += ild
         if 'INSTALL_RPATH' in tgt.properties:
             res.install_rpath = ':'.join(tgt.properties['INSTALL_RPATH'])
         if 'BUILD_RPATH' in tgt.properties:
