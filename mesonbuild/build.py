@@ -75,7 +75,7 @@ lang_arg_kwargs |= {
 vala_kwargs = {'vala_header', 'vala_gir', 'vala_vapi'}
 rust_kwargs = {'rust_crate_type', 'rust_dependency_map'}
 cs_kwargs = {'resources', 'cs_args'}
-swift_kwargs = {'swift_module_name'}
+swift_kwargs = {'swift_interoperability_mode', 'swift_module_name'}
 
 buildtarget_kwargs = {
     'build_by_default',
@@ -758,11 +758,9 @@ class BuildTarget(Target):
         self.link(link_targets)
         self.link_whole(link_whole_targets)
 
-        if not any([self.sources, self.generated, self.objects, self.link_whole_targets, self.structured_sources,
-                    kwargs.pop('_allow_no_sources', False)]):
-            mlog.warning(f'Build target {name} has no sources. '
-                         'This was never supposed to be allowed but did because of a bug, '
-                         'support will be removed in a future release of Meson')
+        if not any([[src for src in self.sources if not is_header(src)], self.generated, self.objects,
+                    self.link_whole_targets, self.structured_sources, kwargs.pop('_allow_no_sources', False)]):
+            raise MesonException(f'Build target {name} has no sources.')
         self.check_unknown_kwargs(kwargs)
         self.validate_install()
         self.check_module_linking()
@@ -882,6 +880,11 @@ class BuildTarget(Target):
         # did user override clink_langs for this target?
         link_langs = [self.link_language] if self.link_language else clink_langs
 
+        if self.link_language:
+            if self.link_language not in self.all_compilers:
+                m = f'Target {self.name} requires {self.link_language} compiler not part of the project'
+                raise MesonException(m)
+
         # If this library is linked against another library we need to consider
         # the languages of those libraries as well.
         if self.link_targets or self.link_whole_targets:
@@ -900,7 +903,7 @@ class BuildTarget(Target):
             # No source files or parent targets, target consists of only object
             # files of unknown origin. Just add the first clink compiler
             # that we have and hope that it can link these objects
-            for lang in link_langs:
+            for lang in reversed(link_langs):
                 if lang in self.all_compilers:
                     self.compilers[lang] = self.all_compilers[lang]
                     break
@@ -1274,6 +1277,8 @@ class BuildTarget(Target):
         if any(not isinstance(v, str) for v in rust_dependency_map.values()):
             raise InvalidArguments(f'Invalid rust_dependency_map "{rust_dependency_map}": must be a dictionary with string values.')
         self.rust_dependency_map = rust_dependency_map
+
+        self.swift_interoperability_mode = kwargs.get('swift_interoperability_mode')
 
         self.swift_module_name = kwargs.get('swift_module_name')
         if self.swift_module_name == '':
@@ -1701,6 +1706,9 @@ class BuildTarget(Target):
 
     def uses_fortran(self) -> bool:
         return 'fortran' in self.compilers
+
+    def uses_swift_cpp_interop(self) -> bool:
+        return self.swift_interoperability_mode == 'cpp' and 'swift' in self.compilers
 
     def get_using_msvc(self) -> bool:
         '''

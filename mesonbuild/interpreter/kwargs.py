@@ -364,6 +364,7 @@ class _BuildTarget(_BaseBuildTarget):
     d_module_versions: T.List[T.Union[str, int]]
     d_unittest: bool
     rust_dependency_map: T.Dict[str, str]
+    swift_interoperability_mode: Literal['c', 'cpp']
     swift_module_name: str
     sources: SourcesVarargsType
     c_args: T.List[str]
@@ -488,3 +489,8 @@ class FuncDeclareDependency(TypedDict):
     sources: T.List[T.Union[FileOrString, build.GeneratedTypes]]
     variables: T.Dict[str, str]
     version: T.Optional[str]
+
+
+class FuncDependency(TypedDict):
+
+    default_options: T.Dict[OptionKey, T.Union[str, int, bool, T.List[str]]]

@@ -633,6 +633,7 @@ _BUILD_TARGET_KWS: T.List[KwargInfo] = [
         default={},
         since='1.2.0',
     ),
+    KwargInfo('swift_interoperability_mode', str, default='c', validator=in_set_validator({'c', 'cpp'}), since='1.9.0'),
     KwargInfo('swift_module_name', str, default='', since='1.9.0'),
     KwargInfo('build_rpath', str, default='', since='0.42.0'),
     KwargInfo(
@@ -866,3 +867,8 @@ PKGCONFIG_DEFINE_KW: KwargInfo = KwargInfo(
     default=[],
     convertor=_pkgconfig_define_convertor,
 )
+
+
+DEPENDENCY_KWS: T.List[KwargInfo] = [
+    DEFAULT_OPTIONS.evolve(since='0.38.0'),
+]
