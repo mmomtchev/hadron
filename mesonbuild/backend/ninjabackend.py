@@ -2208,10 +2208,9 @@ class NinjaBackend(backends.Backend):
             rustdoc = rustc.get_rustdoc(self.environment)
             args = rustdoc.get_exe_args()
             args += self.get_rust_compiler_args(target.doctests.target, rustdoc, target.rust_crate_type)
-            # There can be no non-Rust objects: the doctests are gathered from Rust
-            # sources and the tests are linked with the target (which is where the
-            # obj_list was linked into)
-            _, _, deps_args = self.get_rust_compiler_deps_and_args(target.doctests.target, rustdoc, [])
+            # Rustc does not add files in the obj_list to Rust rlibs,
+            # and is added by Meson to all of the dependencies, including here.
+            _, _, deps_args = self.get_rust_compiler_deps_and_args(target.doctests.target, rustdoc, obj_list)
             args += deps_args
             target.doctests.cmd_args = args.to_native() + [main_rust_file] + target.doctests.cmd_args
 
@@ -3389,7 +3388,7 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
     def get_target_shsym_filename(self, target):
         # Always name the .symbols file after the primary build output because it always exists
         targetdir = self.get_target_private_dir(target)
-        return Path(targetdir, target.get_filename() + '.symbols').as_posix()
+        return os.path.join(targetdir, target.get_filename() + '.symbols')
 
     def generate_shsym(self, target) -> None:
         target_file = self.get_target_filename(target)
@@ -3408,7 +3407,7 @@ https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47485'''))
         self.add_build(elem)
 
     def get_import_filename(self, target) -> str:
-        return Path(self.get_target_dir(target), target.import_filename).as_posix()
+        return os.path.join(self.get_target_dir(target), target.import_filename)
 
     def get_target_type_link_args(self, target, linker):
         commands = []

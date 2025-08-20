@@ -760,7 +760,9 @@ class BuildTarget(Target):
 
         if not any([[src for src in self.sources if not is_header(src)], self.generated, self.objects,
                     self.link_whole_targets, self.structured_sources, kwargs.pop('_allow_no_sources', False)]):
-            raise MesonException(f'Build target {name} has no sources.')
+            mlog.warning(f'Build target {name} has no sources. '
+                         'This was never supposed to be allowed but did because of a bug, '
+                         'support will be removed in a future release of Meson')
         self.check_unknown_kwargs(kwargs)
         self.validate_install()
         self.check_module_linking()
@@ -1223,7 +1225,9 @@ class BuildTarget(Target):
         self.resources = resources
         if kwargs.get('name_prefix') is not None:
             name_prefix = kwargs['name_prefix']
-            if isinstance(name_prefix, list):
+            if isinstance(name_prefix, UnknownValue):
+                pass
+            elif isinstance(name_prefix, list):
                 if name_prefix:
                     raise InvalidArguments('name_prefix array must be empty to signify default.')
             else:
@@ -1233,7 +1237,9 @@ class BuildTarget(Target):
                 self.name_prefix_set = True
         if kwargs.get('name_suffix') is not None:
             name_suffix = kwargs['name_suffix']
-            if isinstance(name_suffix, list):
+            if isinstance(name_suffix, UnknownValue):
+                pass
+            elif isinstance(name_suffix, list):
                 if name_suffix:
                     raise InvalidArguments('name_suffix array must be empty to signify default.')
             else:
