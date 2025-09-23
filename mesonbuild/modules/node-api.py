@@ -228,7 +228,7 @@ class NapiModule(ExtensionModule):
                     mlog.log(f'Downloading {url} to {str(file)}')
                     remote = urllib.request.urlopen(url)
                     data = remote.read()
-                    if (os.path.exists(file)):
+                    if os.path.exists(file):
                         mlog.warning(f'{file} appeared while downloading, multiple concurrent builds?')
                         return
                     with file.open('wb') as output:
