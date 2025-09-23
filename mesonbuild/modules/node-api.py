@@ -227,8 +227,12 @@ class NapiModule(ExtensionModule):
                 if not os.path.exists(file):
                     mlog.log(f'Downloading {url} to {str(file)}')
                     remote = urllib.request.urlopen(url)
+                    data = remote.read()
+                    if (os.path.exists(file)):
+                        mlog.warning(f'{file} appeared while downloading, multiple concurrent builds?')
+                        return
                     with file.open('wb') as output:
-                        output.write(remote.read())
+                        output.write(data)
         except Exception as e:
             raise mesonlib.MesonException(f'Failed downloading from {url}: {str(e)}')
 
