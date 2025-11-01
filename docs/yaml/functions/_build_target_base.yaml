@@ -83,10 +83,12 @@ kwargs:
       (for deps built by the project)
 
   extra_files:
-    type: str | file | custom_tgt | custom_idx
+    type: str | file
     description: |
       Not used for the build itself but are shown as source files in IDEs
-      that group files by targets (such as Visual Studio)
+      that group files by targets (such as Visual Studio).
+
+      These may only be static sources.
 
   gui_app:
     type: bool
@@ -253,7 +255,9 @@ kwargs:
       `default`, `internal`, `hidden`, `protected` or `inlineshidden`, which
       is the same as `hidden` but also includes things like C++ implicit
       constructors as specified in the GCC manual. Ignored on compilers that
-      do not support GNU visibility arguments.
+      do not support GNU visibility arguments. See also
+      [`snippets.symbol_visibility_header()`](Snippets-module.md#symbol_visibility_header)
+      method to help with defining public API.
 
   d_import_dirs:
     type: array[inc | str]
@@ -328,3 +332,25 @@ kwargs:
 
       This allows renaming similar to the dependency renaming feature of cargo
       or `extern crate foo as bar` inside rust code.
+
+  vala_header:
+    type: str
+    description: |
+      On Vala targets, this provides a way to override the name of the generated
+      C compatible header for targets that generate them.
+
+      If it is not set the default will be calculated from the target's name.
+
+  vala_vapi:
+    type: str
+    description: |
+      On Vala targets, this provides a way to override the name of the generated
+      VAPI file.
+
+      If it is not set the default will be calculated from the target's name.
+
+  vala_gir:
+    type: str
+    description: |
+      If set, generates a GIR file with the given name. If this is unset then
+      no GIR file will be generated.

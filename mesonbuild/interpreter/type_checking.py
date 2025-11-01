@@ -12,8 +12,8 @@ from ..build import (CustomTarget, BuildTarget,
                      CustomTargetIndex, ExtractedObjects, GeneratedList, IncludeDirs,
                      BothLibraries, SharedLibrary, StaticLibrary, Jar, Executable, StructuredSources)
 from ..options import OptionKey, UserFeatureOption
-from ..dependencies import Dependency, InternalDependency
-from ..interpreterbase.decorators import KwargInfo, ContainerTypeInfo
+from ..dependencies import Dependency, DependencyMethods, InternalDependency
+from ..interpreterbase.decorators import KwargInfo, ContainerTypeInfo, FeatureBroken
 from ..mesonlib import (File, FileMode, MachineChoice, has_path_sep, listify, stringlistify,
                         EnvironmentVariables)
 from ..programs import ExternalProgram
@@ -24,14 +24,15 @@ NoneType: T.Type[None] = type(None)
 if T.TYPE_CHECKING:
     from typing_extensions import Literal
 
-    from ..build import ObjectTypes
+    from ..build import ObjectTypes, GeneratedTypes, BuildTargetTypes
     from ..interpreterbase import TYPE_var
     from ..options import ElementaryOptionValues
     from ..mesonlib import EnvInitValueType
+    from ..interpreterbase.decorators import FeatureCheckBase
 
     _FullEnvInitValueType = T.Union[EnvironmentVariables, T.List[str], T.List[T.List[str]], EnvInitValueType, str, None]
     PkgConfigDefineType = T.Optional[T.Tuple[T.Tuple[str, str], ...]]
-    SourcesVarargsType = T.List[T.Union[str, File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget]]
+    SourcesVarargsType = T.List[T.Union[str, File, GeneratedTypes, StructuredSources, ExtractedObjects, BuildTarget]]
 
 
 def in_set_validator(choices: T.Set[str]) -> T.Callable[[str], T.Optional[str]]:
@@ -269,7 +270,7 @@ DEPFILE_KW: KwargInfo[T.Optional[str]] = KwargInfo(
     validator=lambda x: 'Depfile must be a plain filename with a subdirectory' if has_path_sep(x) else None
 )
 
-DEPENDS_KW: KwargInfo[T.List[T.Union[BuildTarget, CustomTarget, CustomTargetIndex]]] = KwargInfo(
+DEPENDS_KW: KwargInfo[T.List[BuildTargetTypes]] = KwargInfo(
     'depends',
     ContainerTypeInfo(list, (BuildTarget, CustomTarget, CustomTargetIndex)),
     listify=True,
@@ -284,7 +285,7 @@ DEPEND_FILES_KW: KwargInfo[T.List[T.Union[str, File]]] = KwargInfo(
     default=[],
 )
 
-COMMAND_KW: KwargInfo[T.List[T.Union[str, BuildTarget, CustomTarget, CustomTargetIndex, ExternalProgram, File]]] = KwargInfo(
+COMMAND_KW: KwargInfo[T.List[T.Union[str, BuildTargetTypes, ExternalProgram, File]]] = KwargInfo(
     'command',
     ContainerTypeInfo(list, (str, BuildTarget, CustomTarget, CustomTargetIndex, ExternalProgram, File), allow_empty=False),
     required=True,
@@ -349,7 +350,7 @@ OUTPUT_KW: KwargInfo[str] = KwargInfo(
     validator=lambda x: _output_validator([x])
 )
 
-CT_INPUT_KW: KwargInfo[T.List[T.Union[str, File, ExternalProgram, BuildTarget, CustomTarget, CustomTargetIndex, ExtractedObjects, GeneratedList]]] = KwargInfo(
+CT_INPUT_KW: KwargInfo[T.List[T.Union[str, File, ExternalProgram, BuildTarget, GeneratedTypes, ExtractedObjects]]] = KwargInfo(
     'input',
     ContainerTypeInfo(list, (str, File, ExternalProgram, BuildTarget, CustomTarget, CustomTargetIndex, ExtractedObjects, GeneratedList)),
     listify=True,
@@ -461,7 +462,7 @@ LINK_WHOLE_KW: KwargInfo[T.List[T.Union[BothLibraries, StaticLibrary, CustomTarg
     validator=link_whole_validator,
 )
 
-DEPENDENCY_SOURCES_KW: KwargInfo[T.List[T.Union[str, File, CustomTarget, CustomTargetIndex, GeneratedList]]] = KwargInfo(
+DEPENDENCY_SOURCES_KW: KwargInfo[T.List[T.Union[str, File, GeneratedTypes]]] = KwargInfo(
     'sources',
     ContainerTypeInfo(list, (str, File, CustomTarget, CustomTargetIndex, GeneratedList)),
     listify=True,
@@ -489,6 +490,12 @@ VARIABLES_KW: KwargInfo[T.Dict[str, str]] = KwargInfo(
 
 PRESERVE_PATH_KW: KwargInfo[bool] = KwargInfo('preserve_path', bool, default=False, since='0.63.0')
 
+def suite_convertor(suite: T.List[str]) -> T.List[str]:
+    # Ensure we always have at least one suite.
+    if not suite:
+        return ['']
+    return suite
+
 TEST_KWS_NO_ARGS: T.List[KwargInfo] = [
     KwargInfo('should_fail', bool, default=False),
     KwargInfo('timeout', int, default=30),
@@ -502,7 +509,7 @@ TEST_KWS_NO_ARGS: T.List[KwargInfo] = [
     # TODO: env needs reworks of the way the environment variable holder itself works probably
     ENV_KW,
     DEPENDS_KW.evolve(since='0.46.0'),
-    KwargInfo('suite', ContainerTypeInfo(list, str), listify=True, default=['']),  # yes, a list of empty string
+    KwargInfo('suite', ContainerTypeInfo(list, str), listify=True, default=[], convertor=suite_convertor),
     KwargInfo('verbose', bool, default=False, since='0.62.0'),
 ]
 
@@ -570,13 +577,29 @@ def _objects_validator(vals: T.List[ObjectTypes]) -> T.Optional[str]:
     return None
 
 
+def _target_install_feature_validator(val: object) -> T.Iterable[FeatureCheckBase]:
+    # due to lack of type checking, these are "allowed" for legacy reasons
+    if not isinstance(val, bool):
+        yield FeatureBroken('install kwarg with non-boolean value', '1.3.0',
+                            'This was never intended to work, and is essentially the same as using `install: true` regardless of value.')
+
+
+def _target_install_convertor(val: object) -> bool:
+    return bool(val)
+
+
 # Applies to all build_target like classes
 _ALL_TARGET_KWS: T.List[KwargInfo] = [
     OVERRIDE_OPTIONS_KW,
     KwargInfo('build_by_default', bool, default=True, since='0.38.0'),
     KwargInfo('extra_files', ContainerTypeInfo(list, (str, File)), default=[], listify=True),
-    # Accursed. We allow this for backwards compat and warn in the interpreter.
-    KwargInfo('install', object, default=False),
+    KwargInfo(
+        'install',
+        object,
+        default=False,
+        convertor=_target_install_convertor,
+        feature_validator=_target_install_feature_validator,
+    ),
     INSTALL_MODE_KW,
     KwargInfo('implicit_include_directories', bool, default=True, since='0.42.0'),
     NATIVE_KW,
@@ -656,6 +679,9 @@ _BUILD_TARGET_KWS: T.List[KwargInfo] = [
         validator=in_set_validator(set(compilers.all_languages)),
         since='0.51.0',
     ),
+    KwargInfo('vala_gir', (str, NoneType)),
+    KwargInfo('vala_header', (str, NoneType)),
+    KwargInfo('vala_vapi', (str, NoneType)),
 ]
 
 def _validate_win_subsystem(value: T.Optional[str]) -> T.Optional[str]:
@@ -712,7 +738,14 @@ _DARWIN_VERSIONS_KW: KwargInfo[T.List[T.Union[str, int]]] = KwargInfo(
 _EXCLUSIVE_EXECUTABLE_KWS: T.List[KwargInfo] = [
     KwargInfo('export_dynamic', (bool, NoneType), since='0.45.0'),
     KwargInfo('gui_app', (bool, NoneType), deprecated='0.56.0', deprecated_message="Use 'win_subsystem' instead"),
-    KwargInfo('implib', (bool, str, NoneType), since='0.42.0'),
+    KwargInfo(
+        'implib',
+        (bool, str, NoneType),
+        since='0.42.0',
+        deprecated_values={
+            bool: ('1.10.0', 'Use "export_dynamic" keyword instead'),
+        },
+    ),
     KwargInfo('pie', (bool, NoneType)),
     KwargInfo(
         'win_subsystem',
@@ -868,7 +901,63 @@ PKGCONFIG_DEFINE_KW: KwargInfo = KwargInfo(
     convertor=_pkgconfig_define_convertor,
 )
 
+INCLUDE_TYPE = KwargInfo(
+    'include_type',
+    str,
+    default='preserve',
+    since='0.52.0',
+    validator=in_set_validator({'system', 'non-system', 'preserve'})
+)
+
+
+_DEPRECATED_DEPENDENCY_METHODS = frozenset(
+    {'sdlconfig', 'cups-config', 'pcap-config', 'libwmf-config', 'qmake'})
+
+
+def _dependency_method_convertor(value: str) -> DependencyMethods:
+    if value in _DEPRECATED_DEPENDENCY_METHODS:
+        return DependencyMethods.CONFIG_TOOL
+    return DependencyMethods(value)
+
+
+DEPENDENCY_METHOD_KW = KwargInfo(
+    'method',
+    str,
+    default='auto',
+    since='0.40.0',
+    validator=in_set_validator(
+        {m.value for m in DependencyMethods} | _DEPRECATED_DEPENDENCY_METHODS),
+    convertor=_dependency_method_convertor,
+    deprecated_values={
+        'sdlconfig': ('0.44.0', 'use config-tool instead'),
+        'cups-config': ('0.44.0', 'use config-tool instead'),
+        'pcap-config': ('0.44.0', 'use config-tool instead'),
+        'libwmf-config': ('0.44.0', 'use config-tool instead'),
+        'qmake': ('0.58.0', 'use config-tool instead'),
+    },
+)
+
 
 DEPENDENCY_KWS: T.List[KwargInfo] = [
     DEFAULT_OPTIONS.evolve(since='0.38.0'),
+    DEPENDENCY_METHOD_KW,
+    DISABLER_KW.evolve(since='0.49.0'),
+    INCLUDE_TYPE,
+    NATIVE_KW,
+    REQUIRED_KW,
+    KwargInfo('allow_fallback', (bool, NoneType), since='0.56.0'),
+    KwargInfo('cmake_args', ContainerTypeInfo(list, str), listify=True, default=[], since='0.50.0'),
+    KwargInfo('cmake_module_path', ContainerTypeInfo(list, str), listify=True, default=[], since='0.50.0'),
+    KwargInfo('cmake_package_version', str, default='', since='0.57.0'),
+    KwargInfo('components', ContainerTypeInfo(list, str), listify=True, default=[], since='0.54.0'),
+    KwargInfo('fallback', (ContainerTypeInfo(list, str), str, NoneType), since='0.54.0'),
+    KwargInfo('language', (str, NoneType), convertor=lambda x: x.lower() if x is not None else x,
+              validator=lambda x: 'Must be a valid language if set' if (x is not None and x not in compilers.all_languages) else None),
+    KwargInfo('main', bool, default=False),
+    KwargInfo('modules', ContainerTypeInfo(list, str), listify=True, default=[]),
+    KwargInfo('not_found_message', str, default='', since='0.50.0'),
+    KwargInfo('optional_modules', ContainerTypeInfo(list, str), listify=True, default=[]),
+    KwargInfo('private_headers', bool, default=False),
+    KwargInfo('static', (bool, NoneType)),
+    KwargInfo('version', ContainerTypeInfo(list, str), listify=True, default=[]),
 ]

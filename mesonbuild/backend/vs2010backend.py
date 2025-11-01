@@ -28,11 +28,10 @@ from .. import coredata
 
 if T.TYPE_CHECKING:
     from ..arglist import CompilerArgs
-    from ..interpreter import Interpreter
 
     Project = T.Tuple[str, Path, str, MachineChoice]
 
-def autodetect_vs_version(build: T.Optional[build.Build], interpreter: T.Optional[Interpreter]) -> backends.Backend:
+def autodetect_vs_version(build: T.Optional[build.Build]) -> backends.Backend:
     vs_version = os.getenv('VisualStudioVersion', None)
     vs_install_dir = os.getenv('VSINSTALLDIR', None)
     if not vs_install_dir:
@@ -42,27 +41,27 @@ def autodetect_vs_version(build: T.Optional[build.Build], interpreter: T.Optiona
     # vcvarsall.bat doesn't set it, so also use VSINSTALLDIR
     if vs_version == '11.0' or 'Visual Studio 11' in vs_install_dir:
         from mesonbuild.backend.vs2012backend import Vs2012Backend
-        return Vs2012Backend(build, interpreter)
+        return Vs2012Backend(build)
     if vs_version == '12.0' or 'Visual Studio 12' in vs_install_dir:
         from mesonbuild.backend.vs2013backend import Vs2013Backend
-        return Vs2013Backend(build, interpreter)
+        return Vs2013Backend(build)
     if vs_version == '14.0' or 'Visual Studio 14' in vs_install_dir:
         from mesonbuild.backend.vs2015backend import Vs2015Backend
-        return Vs2015Backend(build, interpreter)
+        return Vs2015Backend(build)
     if vs_version == '15.0' or 'Visual Studio 17' in vs_install_dir or \
        'Visual Studio\\2017' in vs_install_dir:
         from mesonbuild.backend.vs2017backend import Vs2017Backend
-        return Vs2017Backend(build, interpreter)
+        return Vs2017Backend(build)
     if vs_version == '16.0' or 'Visual Studio 19' in vs_install_dir or \
        'Visual Studio\\2019' in vs_install_dir:
         from mesonbuild.backend.vs2019backend import Vs2019Backend
-        return Vs2019Backend(build, interpreter)
+        return Vs2019Backend(build)
     if vs_version == '17.0' or 'Visual Studio 22' in vs_install_dir or \
        'Visual Studio\\2022' in vs_install_dir:
         from mesonbuild.backend.vs2022backend import Vs2022Backend
-        return Vs2022Backend(build, interpreter)
+        return Vs2022Backend(build)
     if 'Visual Studio 10.0' in vs_install_dir:
-        return Vs2010Backend(build, interpreter)
+        return Vs2010Backend(build)
     raise MesonException('Could not detect Visual Studio using VisualStudioVersion: {!r} or VSINSTALLDIR: {!r}!\n'
                          'Please specify the exact backend to use.'.format(vs_version, vs_install_dir))
 
@@ -135,8 +134,8 @@ class Vs2010Backend(backends.Backend):
 
     name = 'vs2010'
 
-    def __init__(self, build: T.Optional[build.Build], interpreter: T.Optional[Interpreter], gen_lite: bool = False):
-        super().__init__(build, interpreter)
+    def __init__(self, build: T.Optional[build.Build], gen_lite: bool = False):
+        super().__init__(build)
         self.project_file_version = '10.0.30319.1'
         self.sln_file_version = '11.00'
         self.sln_version_comment = '2010'
@@ -153,7 +152,7 @@ class Vs2010Backend(backends.Backend):
     def get_target_private_dir(self, target):
         return os.path.join(self.get_target_dir(target), target.get_id())
 
-    def generate_genlist_for_target(self, genlist: T.Union[build.GeneratedList, build.CustomTarget, build.CustomTargetIndex], target: build.BuildTarget, parent_node: ET.Element, generator_output_files: T.List[str], custom_target_include_dirs: T.List[str], custom_target_output_files: T.List[str]) -> None:
+    def generate_genlist_for_target(self, genlist: build.GeneratedTypes, target: build.BuildTarget, parent_node: ET.Element, generator_output_files: T.List[str], custom_target_include_dirs: T.List[str], custom_target_output_files: T.List[str]) -> None:
         if isinstance(genlist, build.GeneratedList):
             for x in genlist.depends:
                 self.generate_genlist_for_target(x, target, parent_node, [], [], [])
@@ -330,7 +329,7 @@ class Vs2010Backend(backends.Backend):
                 result[o.target.get_id()] = o.target
         return result.items()
 
-    def get_target_deps(self, t: T.Dict[T.Any, T.Union[build.Target, build.CustomTargetIndex]], recursive=False):
+    def get_target_deps(self, t: T.Dict[T.Any, build.AnyTargetType], recursive=False):
         all_deps: T.Dict[str, build.Target] = {}
         for target in t.values():
             if isinstance(target, build.CustomTargetIndex):
@@ -538,7 +537,7 @@ class Vs2010Backend(backends.Backend):
         replace_if_different(sln_filename, sln_filename_tmp)
 
     def generate_projects(self, vslite_ctx: dict = None) -> T.List[Project]:
-        startup_project = self.environment.coredata.optstore.get_value('backend_startup_project')
+        startup_project = self.environment.coredata.optstore.get_value_for('backend_startup_project')
         projlist: T.List[Project] = []
         startup_idx = 0
         for (i, (name, target)) in enumerate(self.build.targets.items()):
@@ -570,16 +569,16 @@ class Vs2010Backend(backends.Backend):
         objects = []
         languages = []
         for i in srclist:
-            if self.environment.is_header(i):
+            if compilers.is_header(i):
                 headers.append(i)
-            elif self.environment.is_object(i):
+            elif compilers.is_object(i):
                 objects.append(i)
-            elif self.environment.is_source(i):
+            elif compilers.is_source(i):
                 sources.append(i)
                 lang = self.lang_from_source_file(i)
                 if lang not in languages:
                     languages.append(lang)
-            elif self.environment.is_library(i):
+            elif compilers.is_library(i):
                 pass
             else:
                 # Everything that is not an object or source file is considered a header.
@@ -864,6 +863,8 @@ class Vs2010Backend(backends.Backend):
         # they are not used twice.
         # FIXME add args as needed.
         if entry[1:].startswith('fsanitize'):
+            return True
+        if entry[1:] in frozenset(['Zi', 'Z7', 'ZI']):
             return True
         return entry[1:].startswith('M')
 
@@ -1348,11 +1349,11 @@ class Vs2010Backend(backends.Backend):
         if '/fsanitize=address' in build_args:
             ET.SubElement(type_config, 'EnableASAN').text = 'true'
         # Debug format
-        if '/ZI' in build_args:
+        if '/ZI' in build_args or '-ZI' in build_args:
             ET.SubElement(clconf, 'DebugInformationFormat').text = 'EditAndContinue'
-        elif '/Zi' in build_args:
+        elif '/Zi' in build_args or '-Zi' in build_args:
             ET.SubElement(clconf, 'DebugInformationFormat').text = 'ProgramDatabase'
-        elif '/Z7' in build_args:
+        elif '/Z7' in build_args or '-Z7' in build_args:
             ET.SubElement(clconf, 'DebugInformationFormat').text = 'OldStyle'
         else:
             ET.SubElement(clconf, 'DebugInformationFormat').text = 'None'
@@ -1480,13 +1481,13 @@ class Vs2010Backend(backends.Backend):
                     # Unfortunately, we can't use self.object_filename_from_source()
                     for gen in l.genlist:
                         for src in gen.get_outputs():
-                            if self.environment.is_source(src):
+                            if compilers.is_source(src):
                                 path = self.get_target_generated_dir(t, gen, src)
                                 gen_src_ext = '.' + os.path.splitext(path)[1][1:]
                                 extra_link_args.append(path[:-len(gen_src_ext)] + '.obj')
 
                     for src in l.srclist:
-                        if self.environment.is_source(src):
+                        if compilers.is_source(src):
                             target_private_dir = self.relpath(self.get_target_private_dir(t),
                                                               self.get_target_dir(t))
                             rel_obj = self.object_filename_from_source(t, compiler, src, target_private_dir)
@@ -1575,7 +1576,7 @@ class Vs2010Backend(backends.Backend):
     # once a build/compile has generated these sources.
     #
     # This modifies the paths in 'gen_files' in place, as opposed to returning a new list of modified paths.
-    def relocate_generated_file_paths_to_concrete_build_dir(self, gen_files: T.List[str], target: T.Union[build.Target, build.CustomTargetIndex]) -> None:
+    def relocate_generated_file_paths_to_concrete_build_dir(self, gen_files: T.List[str], target: build.AnyTargetType) -> None:
         (_, build_dir_tail) = os.path.split(self.src_to_build)
         meson_build_dir_for_buildtype = build_dir_tail[:-2] + coredata.get_genvs_default_buildtype_list()[0] # Get the first buildtype suffixed dir (i.e. '[builddir]_debug') from '[builddir]_vs'
         # Relative path from this .vcxproj to the directory containing the set of '..._[debug/debugoptimized/release]' setup meson build dirs.

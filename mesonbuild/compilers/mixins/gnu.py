@@ -526,9 +526,9 @@ class GnuLikeCompiler(Compiler, metaclass=abc.ABCMeta):
 
     @classmethod
     def use_linker_args(cls, linker: str, version: str) -> T.List[str]:
-        if linker not in {'gold', 'bfd', 'lld'}:
+        if linker not in {'bfd', 'eld', 'gold', 'lld'}:
             raise mesonlib.MesonException(
-                f'Unsupported linker, only bfd, gold, and lld are supported, not {linker}.')
+                f'Unsupported linker, only bfd, eld, gold, and lld are supported, not {linker}.')
         return [f'-fuse-ld={linker}']
 
     def get_coverage_args(self) -> T.List[str]:
@@ -551,13 +551,18 @@ class GnuCompiler(GnuLikeCompiler):
     """
     id = 'gcc'
 
+    _COLOR_VERSION = '>=4.9.0'
+    _WPEDANTIC_VERSION = '>=4.8.0'
+    _LTO_AUTO_VERSION = '>=10.0'
+    _USE_MOLD_VERSION = '>=12.0.1'
+
     def __init__(self, defines: T.Optional[T.Dict[str, str]]):
         super().__init__()
         self.defines = defines or {}
         self.base_options.update({OptionKey('b_colorout'), OptionKey('b_lto_threads')})
-        self._has_color_support = mesonlib.version_compare(self.version, '>=4.9.0')
-        self._has_wpedantic_support = mesonlib.version_compare(self.version, '>=4.8.0')
-        self._has_lto_auto_support = mesonlib.version_compare(self.version, '>=10.0')
+        self._has_color_support = mesonlib.version_compare(self.version, self._COLOR_VERSION)
+        self._has_wpedantic_support = mesonlib.version_compare(self.version, self._WPEDANTIC_VERSION)
+        self._has_lto_auto_support = mesonlib.version_compare(self.version, self._LTO_AUTO_VERSION)
 
     def get_colorout_args(self, colortype: str) -> T.List[str]:
         if self._has_color_support:
@@ -631,7 +636,7 @@ class GnuCompiler(GnuLikeCompiler):
 
     @classmethod
     def use_linker_args(cls, linker: str, version: str) -> T.List[str]:
-        if linker == 'mold' and mesonlib.version_compare(version, '>=12.0.1'):
+        if linker == 'mold' and mesonlib.version_compare(version, cls._USE_MOLD_VERSION):
             return ['-fuse-ld=mold']
         return super().use_linker_args(linker, version)
 

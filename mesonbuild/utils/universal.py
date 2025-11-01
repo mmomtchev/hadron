@@ -34,7 +34,7 @@ if T.TYPE_CHECKING:
 
     from .._typing import ImmutableListProtocol
     from ..build import ConfigurationData
-    from ..coredata import StrOrBytesPath
+    from ..cmdline import StrOrBytesPath
     from ..environment import Environment
     from ..compilers.compilers import Compiler
     from ..interpreterbase.baseobjects import SubProject
@@ -108,6 +108,7 @@ __all__ = [
     'get_compiler_for_source',
     'get_filenames_templates_dict',
     'get_rsp_threshold',
+    'get_subproject_dir',
     'get_variable_regex',
     'get_wine_shortpath',
     'git',
@@ -151,9 +152,11 @@ __all__ = [
     'set_meson_command',
     'split_args',
     'stringlistify',
+    'underscorify',
     'substitute_values',
     'substring_is_in_list',
     'typeslistify',
+    'unique_list',
     'verbose_git',
     'version_compare',
     'version_compare_condition_with_min',
@@ -1265,6 +1268,9 @@ def do_replacement_meson(regex: T.Pattern[str], line: str,
                 if isinstance(var, str):
                     var_str = var
                 elif isinstance(var, int):
+                    if isinstance(var, bool):
+                        msg = f'Variable substitution with boolean value {varname!r} is deprecated.'
+                        mlog.deprecation(msg)
                     var_str = str(var)
                 else:
                     msg = f'Tried to replace variable {varname!r} value with ' \
@@ -1687,6 +1693,8 @@ def typeslistify(item: 'T.Union[_T, T.Sequence[_T]]',
 def stringlistify(item: T.Union[T.Any, T.Sequence[T.Any]]) -> T.List[str]:
     return typeslistify(item, str)
 
+def underscorify(item: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9]', '_', item)
 
 def expand_arguments(args: T.Iterable[str]) -> T.Optional[T.List[str]]:
     expended_args: T.List[str] = []
@@ -2061,6 +2069,8 @@ def detect_subprojects(spdir_name: str, current_dir: str = '',
             continue
         append_this = True
         if os.path.isdir(trial):
+            spdir_name = get_subproject_dir(trial) or 'subprojects'
+
             detect_subprojects(spdir_name, trial, result)
         elif trial.endswith('.wrap') and os.path.isfile(trial):
             basename = os.path.splitext(basename)[0]
@@ -2079,6 +2089,10 @@ def substring_is_in_list(substr: str, strlist: T.List[str]) -> bool:
         if substr in s:
             return True
     return False
+
+
+def unique_list(x: T.Iterable[_T]) -> T.List[_T]:
+    return list(dict.fromkeys(x))
 
 
 class OrderedSet(T.MutableSet[_T]):
@@ -2494,3 +2508,23 @@ class lazy_property(T.Generic[_T]):
         value = self.__func(instance)
         setattr(instance, self.__name, value)
         return value
+
+
+def get_subproject_dir(directory: str = '.') -> T.Optional[str]:
+    """Get the name of the subproject directory for a specific project.
+
+    If the subproject does not have a meson.build file, it is called in an
+    invalid directory, it returns None
+
+    :param directory: Where to search, defaults to current working directory
+    :return: the name of the subproject directory or None.
+    """
+    from ..ast import IntrospectionInterpreter
+    from ..interpreterbase.exceptions import InvalidArguments
+    intr = IntrospectionInterpreter(directory, '', 'none')
+    try:
+        intr.load_root_meson_file()
+    except InvalidArguments: # Root meson file cannot be found
+        return None
+
+    return intr.extract_subproject_dir() or 'subprojects'

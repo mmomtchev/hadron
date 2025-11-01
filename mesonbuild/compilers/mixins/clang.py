@@ -12,7 +12,7 @@ import typing as T
 from ... import mesonlib
 from ... import options
 from ...linkers.linkers import AppleDynamicLinker, ClangClDynamicLinker, LLVMDynamicLinker, GnuGoldDynamicLinker, \
-    MoldDynamicLinker, MSVCDynamicLinker
+    MoldDynamicLinker, VisualStudioLikeLinkerMixin
 from ...options import OptionKey
 from ..compilers import CompileCheckMode
 from .gnu import GnuLikeCompiler
@@ -54,6 +54,26 @@ class ClangCompiler(GnuLikeCompiler):
 
     id = 'clang'
 
+    # -fms-runtime-lib is a compilation option which sets up an automatic dependency
+    # from the .o files to the final link product
+    CRT_D_ARGS: T.Dict[str, T.List[str]] = {
+        'none': [],
+        'md': ['-fms-runtime-lib=dll'],
+        'mdd': ['-fms-runtime-lib=dll_dbg'],
+        'mt': ['-fms-runtime-lib=static'],
+        'mtd': ['-fms-runtime-lib=static_dbg'],
+    }
+
+    # disable libcmt to avoid warnings, as that is the default and clang
+    # adds it by default.
+    CRT_ARGS: T.Dict[str, T.List[str]] = {
+        'none': [],
+        'md': ['-Wl,/nodefaultlib:libcmt'],
+        'mdd': ['-Wl,/nodefaultlib:libcmt'],
+        'mt': [],
+        'mtd': ['-Wl,/nodefaultlib:libcmt'],
+    }
+
     def __init__(self, defines: T.Optional[T.Dict[str, str]]):
         super().__init__()
         self.defines = defines or {}
@@ -65,10 +85,22 @@ class ClangCompiler(GnuLikeCompiler):
         # linkers don't have base_options.
         if isinstance(self.linker, AppleDynamicLinker):
             self.base_options.add(OptionKey('b_bitcode'))
-        elif isinstance(self.linker, MSVCDynamicLinker):
+        elif isinstance(self.linker, VisualStudioLikeLinkerMixin):
             self.base_options.add(OptionKey('b_vscrt'))
         # All Clang backends can also do LLVM IR
         self.can_compile_suffixes.add('ll')
+
+    def get_crt_compile_args(self, crt_val: str, buildtype: str) -> T.List[str]:
+        if not isinstance(self.linker, VisualStudioLikeLinkerMixin):
+            return []
+        crt_val = self.get_crt_val(crt_val, buildtype)
+        return self.CRT_D_ARGS[crt_val]
+
+    def get_crt_link_args(self, crt_val: str, buildtype: str) -> T.List[str]:
+        if not isinstance(self.linker, VisualStudioLikeLinkerMixin):
+            return []
+        crt_val = self.get_crt_val(crt_val, buildtype)
+        return self.CRT_ARGS[crt_val]
 
     def get_colorout_args(self, colortype: str) -> T.List[str]:
         return clang_color_args[colortype][:]
@@ -142,7 +174,7 @@ class ClangCompiler(GnuLikeCompiler):
             return []
 
     def gen_vs_module_defs_args(self, defsfile: str) -> T.List[str]:
-        if isinstance(self.linker, (ClangClDynamicLinker, MSVCDynamicLinker)):
+        if isinstance(self.linker, VisualStudioLikeLinkerMixin):
             # With MSVC, DLLs only export symbols that are explicitly exported,
             # so if a module defs file is specified, we use that to export symbols
             return ['-Wl,/DEF:' + defsfile]
@@ -196,7 +228,7 @@ class ClangCompiler(GnuLikeCompiler):
         return args
 
     def linker_to_compiler_args(self, args: T.List[str]) -> T.List[str]:
-        if isinstance(self.linker, (ClangClDynamicLinker, MSVCDynamicLinker)):
+        if isinstance(self.linker, VisualStudioLikeLinkerMixin):
             return [flag if flag.startswith('-Wl,') or flag.startswith('-fuse-ld=') else f'-Wl,{flag}' for flag in args]
         else:
             return args

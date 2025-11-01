@@ -163,7 +163,7 @@ def parse_generator_expressions(
         if func in supported:
             res = supported[func](args)
         else:
-            mlog.debug(f"Ignoring unsupported generator expression {func}:{args}.")
+            mlog.warning(f"Unknown generator expression '$<{func}:{args}>'.", once=True, fatal=False)
 
         return res
 

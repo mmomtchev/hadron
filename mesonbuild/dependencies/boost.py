@@ -21,6 +21,7 @@ from .misc import threads_factory
 if T.TYPE_CHECKING:
     from ..envconfig import Properties
     from ..environment import Environment
+    from .base import DependencyObjectKWs
 
 # On windows 3 directory layouts are supported:
 # * The default layout (versioned) installed:
@@ -339,7 +340,7 @@ class BoostLibraryFile():
         return [self.path.as_posix()]
 
 class BoostDependency(SystemDependency):
-    def __init__(self, environment: Environment, kwargs: T.Dict[str, T.Any]) -> None:
+    def __init__(self, environment: Environment, kwargs: DependencyObjectKWs) -> None:
         super().__init__('boost', environment, kwargs, language='cpp')
         buildtype = environment.coredata.optstore.get_value_for(OptionKey('buildtype'))
         assert isinstance(buildtype, str)
@@ -347,13 +348,11 @@ class BoostDependency(SystemDependency):
         self.multithreading = kwargs.get('threading', 'multi') == 'multi'
 
         self.boost_root: T.Optional[Path] = None
-        self.explicit_static = 'static' in kwargs
+        self.explicit_static = kwargs.get('static') is not None
 
         # Extract and validate modules
-        self.modules: T.List[str] = mesonlib.extract_as_list(kwargs, 'modules')
+        self.modules = kwargs.get('modules', [])
         for i in self.modules:
-            if not isinstance(i, str):
-                raise DependencyException('Boost module argument is not a string.')
             if i.startswith('boost_'):
                 raise DependencyException('Boost modules must be passed without the boost_ prefix')
 
@@ -604,9 +603,9 @@ class BoostDependency(SystemDependency):
         # MSVC is very picky with the library tags
         vscrt = ''
         try:
-            crt_val = self.env.coredata.optstore.get_value('b_vscrt')
+            crt_val = self.env.coredata.optstore.get_value_for('b_vscrt')
             assert isinstance(crt_val, str)
-            buildtype = self.env.coredata.optstore.get_value('buildtype')
+            buildtype = self.env.coredata.optstore.get_value_for('buildtype')
             assert isinstance(buildtype, str)
             vscrt = self.clib_compiler.get_crt_compile_args(crt_val, buildtype)[0]
         except (KeyError, IndexError, AttributeError):
