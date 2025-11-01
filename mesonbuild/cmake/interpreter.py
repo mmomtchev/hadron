@@ -22,7 +22,7 @@ from .. import mlog, mesonlib
 from .. import options
 from ..mesonlib import MachineChoice, OrderedSet, path_is_in_root, relative_to_if_possible
 from ..options import OptionKey
-from ..environment import detect_ninja
+from ..tooldetect import detect_ninja
 from ..mesondata import DataFile
 from ..compilers.compilers import assembler_suffixes, lang_suffixes, header_suffixes, obj_suffixes, lib_suffixes, is_header
 from ..programs import ExternalProgram

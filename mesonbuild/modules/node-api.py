@@ -172,13 +172,13 @@ class NapiModule(ExtensionModule):
 
         # emscripten cannot link code compiled with -pthread with code compiled without it
         build_opts = self.interpreter.environment.coredata.optstore
-        c_thread_count = build_opts.get_value(OptionKey('c_thread_count'))
+        c_thread_count = build_opts.get_value_for(OptionKey('c_thread_count'))
         assert isinstance(c_thread_count, int)
         cpp_thread_count: options.ElementaryOptionValues = 0
         if 'cpp' in self.interpreter.environment.coredata.compilers.host:
-            cpp_thread_count = build_opts.get_value(OptionKey('cpp_thread_count'))
+            cpp_thread_count = build_opts.get_value_for(OptionKey('cpp_thread_count'))
             assert isinstance(cpp_thread_count, int)
-            exceptions = build_opts.get_value(OptionKey('cpp_eh')) != 'none'
+            exceptions = build_opts.get_value_for(OptionKey('cpp_eh')) != 'none'
             if exceptions:
                 cpp_args.append('-sNO_DISABLE_EXCEPTION_CATCHING')
                 link_args.append('-sNO_DISABLE_EXCEPTION_CATCHING')

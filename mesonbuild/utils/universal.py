@@ -2043,6 +2043,13 @@ class TemporaryDirectoryWinProof(TemporaryDirectory):
     windows_proof_rmtree()
     """
 
+    def __init__(self, *args: T.Any, **kwargs: T.Any):
+        super().__init__(*args, **kwargs)
+        # https://docs.python.org/3/library/tempfile.html#tempfile.mkdtemp
+        # There was a change of behaviour in Python 3.12
+        if not os.path.isabs(self.name):
+            self.name = os.path.abspath(self.name)
+
     def __exit__(self, exc: T.Any, value: T.Any, tb: T.Any) -> None:
         try:
             super().__exit__(exc, value, tb)

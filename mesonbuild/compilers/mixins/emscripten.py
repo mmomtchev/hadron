@@ -65,7 +65,7 @@ class EmscriptenMixin(Compiler):
         return emscripten_debug_args[is_debug]
 
     def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
-        if env.coredata.optstore.get_value(OptionKey('debug', machine=self.for_machine)):
+        if env.coredata.optstore.get_value_for(OptionKey('debug', machine=self.for_machine)):
             return ['-gsource-map']
         return []
 
