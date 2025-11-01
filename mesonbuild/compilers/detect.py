@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from ..mesonlib import (
     MesonException, EnvironmentException, MachineChoice, join_args,
-    search_version, is_windows, Popen_safe, Popen_safe_logged, windows_proof_rm,
+    search_version, is_windows, Popen_safe, Popen_safe_logged, version_compare, windows_proof_rm,
 )
-from ..envconfig import BinaryTable
+from ..programs import ExternalProgram
+from ..envconfig import BinaryTable, detect_cpu_family, detect_machine_info
 from .. import mlog
 
 from ..linkers import guess_win_linker, guess_nix_linker
@@ -22,6 +23,7 @@ import typing as T
 
 if T.TYPE_CHECKING:
     from .compilers import Compiler
+    from .asm import ASMCompiler
     from .c import CCompiler
     from .cpp import CPPCompiler
     from .fortran import FortranCompiler
@@ -46,7 +48,7 @@ if is_windows():
     # There is currently no pgc++ for Windows, only for  Mac and Linux.
     defaults['cpp'] = ['icl', 'cl', 'c++', 'g++', 'clang++', 'clang-cl']
     # the binary flang-new will be renamed to flang in the foreseeable future
-    defaults['fortran'] = ['ifort', 'gfortran', 'flang-new', 'flang', 'pgfortran', 'g95']
+    defaults['fortran'] = ['ifort', 'ifx', 'gfortran', 'flang-new', 'flang', 'pgfortran', 'g95']
     defaults['objc'] = ['clang', 'clang-cl', 'gcc']
     defaults['objcpp'] = ['clang++', 'clang-cl', 'g++']
     defaults['cs'] = ['csc', 'mcs']
@@ -118,7 +120,7 @@ def detect_compiler_for(env: 'Environment', lang: str, for_machine: MachineChoic
 # =======
 
 def _get_compilers(env: 'Environment', lang: str, for_machine: MachineChoice,
-                   allow_build_machine: bool = False) -> T.Tuple[T.List[T.List[str]], T.List[str]]:
+                   allow_build_machine: bool = False) -> T.Tuple[T.List[T.List[str]], T.Union[None, ExternalProgram]]:
     '''
     The list of compilers is detected in the exact same way for
     C, C++, ObjC, ObjC++, Fortran, CS so consolidate it here.
@@ -225,8 +227,11 @@ def detect_static_linker(env: 'Environment', compiler: Compiler) -> StaticLinker
             return linkers.DLinker(linker, compiler.arch)
         if err.startswith('Renesas') and 'rlink' in linker_name:
             return linkers.CcrxLinker(linker)
-        if out.startswith('GNU ar') and 'xc16-ar' in linker_name:
-            return linkers.Xc16Linker(linker)
+        if out.startswith('GNU ar'):
+            if 'xc16-ar' in linker_name:
+                return linkers.Xc16Linker(linker)
+            elif 'xc32-ar' in linker_name:
+                return linkers.Xc32ArLinker(compiler.for_machine, linker)
         if 'Texas Instruments Incorporated' in out:
             if 'ar2000' in linker_name:
                 return linkers.C2000Linker(linker)
@@ -269,7 +274,8 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
     from . import c, cpp
     from ..linkers import linkers
     popen_exceptions: T.Dict[str, T.Union[Exception, str]] = {}
-    compilers, ccache = _get_compilers(env, lang, for_machine)
+    compilers, ccache_exe = _get_compilers(env, lang, for_machine)
+    ccache = ccache_exe.get_command() if (ccache_exe and ccache_exe.found()) else []
     if override_compiler is not None:
         compilers = [override_compiler]
     is_cross = env.is_cross_build(for_machine)
@@ -340,7 +346,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             guess_gcc_or_lcc = 'gcc'
         if 'e2k' in out and 'lcc' in out:
             guess_gcc_or_lcc = 'lcc'
-        if 'Microchip Technology' in out:
+        if 'Microchip' in out:
             # this output has "Free Software Foundation" in its version
             guess_gcc_or_lcc = None
 
@@ -516,9 +522,10 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
                 raise EnvironmentException(m)
             cls = c.VisualStudioCCompiler if lang == 'c' else cpp.VisualStudioCPPCompiler
             linker = guess_win_linker(env, ['link'], cls, version, for_machine)
-            # As of this writing, CCache does not support MSVC but sccache does.
-            if 'sccache' not in ccache:
-                ccache = []
+            if ccache_exe and ccache_exe.found():
+                if ccache_exe.get_name() == 'ccache' and version_compare(ccache_exe.get_version(), '< 4.6'):
+                    mlog.warning('Visual Studio support requires ccache 4.6 or higher. You have ccache {}. '.format(ccache_exe.get_version()), once=True)
+                    ccache = []
             return cls(
                 ccache, compiler, version, for_machine, is_cross, info, target,
                 full_version=cl_signature, linker=linker)
@@ -563,13 +570,34 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
                 ccache, compiler, version, for_machine, is_cross, info,
                 full_version=full_version, linker=linker)
 
-        if 'Microchip Technology' in out:
-            cls = c.Xc16CCompiler
-            env.add_lang_args(cls.language, cls, for_machine)
-            linker = linkers.Xc16DynamicLinker(for_machine, version=version)
-            return cls(
-                ccache, compiler, version, for_machine, is_cross, info,
-                full_version=full_version, linker=linker)
+        if 'Microchip' in out:
+            if 'XC32' in out:
+                # XC32 versions always have the form 'vMAJOR.MINOR'
+                match = re.search(r'XC32.*v(\d+\.\d+)', out)
+                if match:
+                    version = match.group(1)
+                else:
+                    raise EnvironmentException(f'Failed to detect XC32 compiler version: full version was\n{full_version}')
+
+                cls = c.Xc32CCompiler if lang == 'c' else cpp.Xc32CPPCompiler
+                defines = _get_gnu_compiler_defines(compiler, lang)
+                cls.gcc_version = _get_gnu_version_from_defines(defines)
+
+                env.add_lang_args(cls.language, cls, for_machine)
+                linker = linkers.Xc32DynamicLinker(compiler, for_machine, cls.LINKER_PREFIX, [], version=version)
+
+                return cls(
+                    ccache, compiler, version, for_machine, is_cross,
+                    info, defines=defines, full_version=full_version,
+                    linker=linker)
+            else:
+                cls = c.Xc16CCompiler
+                env.add_lang_args(cls.language, cls, for_machine)
+                linker = linkers.Xc16DynamicLinker(for_machine, version=version)
+
+                return cls(
+                    ccache, compiler, version, for_machine, is_cross, info,
+                    full_version=full_version, linker=linker)
 
         if 'CompCert' in out:
             cls = c.CompCertCCompiler
@@ -641,7 +669,8 @@ def detect_cuda_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
     from ..linkers.linkers import CudaLinker
     popen_exceptions = {}
     is_cross = env.is_cross_build(for_machine)
-    compilers, ccache = _get_compilers(env, 'cuda', for_machine)
+    compilers, ccache_exe = _get_compilers(env, 'cuda', for_machine)
+    ccache = ccache_exe.get_command() if (ccache_exe and ccache_exe.found()) else []
     info = env.machines[for_machine]
     for compiler in compilers:
         arg = '--version'
@@ -670,13 +699,15 @@ def detect_cuda_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
         cls = CudaCompiler
         env.add_lang_args(cls.language, cls, for_machine)
         key = OptionKey('cuda_link_args', machine=for_machine)
+        if for_machine is MachineChoice.BUILD and not is_cross:
+            key = key.as_host()
         if key in env.options:
             # To fix LDFLAGS issue
             val = env.options[key]
             if isinstance(val, str):
                 val = [val]
             assert isinstance(val, list)
-            env.coredata.set_options({key: cls.to_host_flags_base(val, Phase.LINKER)})
+            env.coredata.optstore.set_option(key, cls.to_host_flags_base(val, Phase.LINKER))
         linker = CudaLinker(compiler, for_machine, CudaCompiler.LINKER_PREFIX, [], version=CudaLinker.parse_version())
         return cls(ccache, compiler, version, for_machine, is_cross, host_compiler=cpp_compiler, info=info, linker=linker)
     raise EnvironmentException(f'Could not find suitable CUDA compiler: "{"; ".join([" ".join(c) for c in compilers])}"')
@@ -878,7 +909,8 @@ def detect_objcpp_compiler(env: 'Environment', for_machine: MachineChoice) -> 'C
 def _detect_objc_or_objcpp_compiler(env: 'Environment', lang: str, for_machine: MachineChoice) -> 'Compiler':
     from . import objc, objcpp
     popen_exceptions: T.Dict[str, T.Union[Exception, str]] = {}
-    compilers, ccache = _get_compilers(env, lang, for_machine)
+    compilers, ccache_exe = _get_compilers(env, lang, for_machine)
+    ccache = ccache_exe.get_command() if (ccache_exe and ccache_exe.found()) else []
     is_cross = env.is_cross_build(for_machine)
     info = env.machines[for_machine]
     comp: T.Union[T.Type[objc.ObjCCompiler], T.Type[objcpp.ObjCPPCompiler]]
@@ -1166,8 +1198,6 @@ def detect_d_compiler(env: 'Environment', for_machine: MachineChoice) -> Compile
     if not is_msvc:
         c_compiler = {}
 
-    # Import here to avoid circular imports
-    from ..environment import detect_cpu_family
     arch = detect_cpu_family(c_compiler)
     if is_msvc and arch == 'x86':
         arch = 'x86_mscoff'
@@ -1311,7 +1341,6 @@ def detect_nasm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
     # We need a C compiler to properly detect the machine info and linker
     cc = detect_c_compiler(env, for_machine)
     if not is_cross:
-        from ..environment import detect_machine_info
         info = detect_machine_info({'c': cc})
     else:
         info = env.machines[for_machine]
@@ -1329,6 +1358,7 @@ def detect_nasm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
             continue
 
         version = search_version(output)
+        comp_class: T.Type[ASMCompiler]
         if 'NASM' in output:
             comp_class = NasmCompiler
             env.add_lang_args(comp_class.language, comp_class, for_machine)
@@ -1355,13 +1385,12 @@ def detect_masm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
     is_cross = env.is_cross_build(for_machine)
     cc = detect_c_compiler(env, for_machine)
     if not is_cross:
-        from ..environment import detect_machine_info
         info = detect_machine_info({'c': cc})
     else:
         info = env.machines[for_machine]
 
     from .asm import MasmCompiler, MasmARMCompiler
-    comp_class: T.Type[Compiler]
+    comp_class: T.Type[ASMCompiler]
     if info.cpu_family == 'x86':
         comp = ['ml']
         comp_class = MasmCompiler
@@ -1395,7 +1424,7 @@ def detect_masm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
 def detect_linearasm_compiler(env: Environment, for_machine: MachineChoice) -> Compiler:
     from .asm import TILinearAsmCompiler
     comp = ['cl6x']
-    comp_class: T.Type[Compiler] = TILinearAsmCompiler
+    comp_class: T.Type[ASMCompiler] = TILinearAsmCompiler
     arg = '-h'
     info = env.machines[for_machine]
     cc = detect_c_compiler(env, for_machine)

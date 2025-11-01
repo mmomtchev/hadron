@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2012-2025 The Meson development team
+
 from __future__ import annotations
 
 import os
@@ -113,7 +116,17 @@ def _setup_vsenv(force: bool) -> bool:
             # there is no "=", ignore junk data
             pass
         else:
-            os.environ[k] = v
+            try:
+                os.environ[k] = v
+            except ValueError:
+                # FIXME: When a value contains a newline, the output of SET
+                # command is impossible to parse because it makes not escaping.
+                # `VAR="Hello\n=World"` gets split into two lines:
+                # `VAR=Hello` and `=World`. That 2nd line will cause ValueError
+                # exception here. Just ignore for now because variables we do
+                # care won't have multiline values.
+                pass
+
     return True
 
 def setup_vsenv(force: bool = False) -> bool:

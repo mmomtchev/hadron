@@ -398,7 +398,16 @@ class WindowsTests(BasePlatformTests):
         if OptionKey('b_vscrt') not in cc.base_options:
             raise SkipTest('Compiler does not support setting the VS CRT')
 
+        MSVCRT_MAP = {
+            '/MD': '-fms-runtime-lib=dll',
+            '/MDd': '-fms-runtime-lib=dll_dbg',
+            '/MT': '-fms-runtime-lib=static',
+            '/MTd': '-fms-runtime-lib=static_dbg',
+        }
+
         def sanitycheck_vscrt(vscrt):
+            if cc.get_argument_syntax() != 'msvc':
+                vscrt = MSVCRT_MAP[vscrt]
             checks = self.get_meson_log_sanitychecks()
             self.assertGreater(len(checks), 0)
             for check in checks:
@@ -466,6 +475,12 @@ class WindowsTests(BasePlatformTests):
         # Studio is picked, as a regression test for
         # https://github.com/mesonbuild/meson/issues/9774
         env['PATH'] = get_path_without_cmd('ninja', env['PATH'])
+        # Add a multiline variable to test that it is handled correctly
+        # with a line that contains only '=' and a line that would result
+        # in an invalid variable name.
+        # see: https://github.com/mesonbuild/meson/pull/13682
+        env['MULTILINE_VAR_WITH_EQUALS'] = 'Foo\r\n=====\r\n'
+        env['MULTILINE_VAR_WITH_INVALID_NAME'] = 'Foo\n%=Bar\n'
         testdir = os.path.join(self.common_test_dir, '1 trivial')
         out = self.init(testdir, extra_args=['--vsenv'], override_envvars=env)
         self.assertIn('Activating VS', out)

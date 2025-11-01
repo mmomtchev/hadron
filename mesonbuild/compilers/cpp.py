@@ -32,6 +32,7 @@ from .mixins.pgi import PGICompiler
 from .mixins.emscripten import EmscriptenMixin
 from .mixins.metrowerks import MetrowerksCompiler
 from .mixins.metrowerks import mwccarm_instruction_set_args, mwcceppc_instruction_set_args
+from .mixins.microchip import Xc32Compiler, Xc32CPPStds
 
 if T.TYPE_CHECKING:
     from ..options import MutableKeyedOptionDictType
@@ -158,7 +159,7 @@ class CPPCompiler(CLikeCompiler, Compiler):
         }
 
         # Currently, remapping is only supported for Clang, Elbrus and GCC
-        assert self.id in frozenset(['clang', 'lcc', 'gcc', 'emscripten', 'armltdclang', 'intel-llvm'])
+        assert self.id in frozenset(['clang', 'lcc', 'gcc', 'emscripten', 'armltdclang', 'intel-llvm', 'nvidia_hpc', 'xc32-gcc'])
 
         if cpp_std not in CPP_FALLBACKS:
             # 'c++03' and 'c++98' don't have fallback types
@@ -285,6 +286,7 @@ class ClangCPPCompiler(_StdCPPLibMixin, ClangCPPStds, ClangCompiler, CPPCompiler
             # https://discourse.llvm.org/t/building-a-program-with-d-libcpp-debug-1-against-a-libc-that-is-not-itself-built-with-that-define/59176/3
             # Note that unlike _GLIBCXX_DEBUG, _MODE_DEBUG doesn't break ABI. It's just slow.
             if version_compare(self.version, '>=18'):
+                args.append('-U_LIBCPP_HARDENING_MODE')
                 args.append('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG')
 
         if not rtti:
@@ -311,9 +313,6 @@ class ClangCPPCompiler(_StdCPPLibMixin, ClangCPPStds, ClangCompiler, CPPCompiler
             return libs
         return []
 
-    def is_libcpp_enable_assertions_deprecated(self) -> bool:
-        return version_compare(self.version, ">=18")
-
     def get_assert_args(self, disable: bool, env: 'Environment') -> T.List[str]:
         if disable:
             return ['-DNDEBUG']
@@ -325,13 +324,8 @@ class ClangCPPCompiler(_StdCPPLibMixin, ClangCPPStds, ClangCompiler, CPPCompiler
 
         if self.language_stdlib_provider(env) == 'stdc++':
             return ['-D_GLIBCXX_ASSERTIONS=1']
-        else:
-            if self.is_libcpp_enable_assertions_deprecated():
-                return ['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST']
-            elif version_compare(self.version, '>=15'):
-                return ['-D_LIBCPP_ENABLE_ASSERTIONS=1']
 
-        return []
+        return ['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST']
 
     def get_pch_use_args(self, pch_dir: str, header: str) -> T.List[str]:
         args = super().get_pch_use_args(pch_dir, header)
@@ -346,13 +340,7 @@ class ArmLtdClangCPPCompiler(ClangCPPCompiler):
 
 
 class AppleClangCPPCompiler(AppleCompilerMixin, AppleCPPStdsMixin, ClangCPPCompiler):
-    def is_libcpp_enable_assertions_deprecated(self) -> bool:
-        # Upstream libc++ deprecated _LIBCPP_ENABLE_ASSERTIONS
-        # in favor of _LIBCPP_HARDENING_MODE from version 18 onwards,
-        # but Apple Clang 16's libc++ has back-ported that change.
-        # See: https://github.com/mesonbuild/meson/issues/14440 and
-        # https://github.com/mesonbuild/meson/issues/14856
-        return version_compare(self.version, ">=16")
+    pass
 
 
 class EmscriptenCPPCompiler(EmscriptenMixin, ClangCPPCompiler):
@@ -512,6 +500,7 @@ class GnuCPPCompiler(_StdCPPLibMixin, GnuCPPStds, GnuCompiler, CPPCompiler):
         if not rtti:
             args.append('-fno-rtti')
 
+        # We may want to handle libc++'s debugstl mode here too
         if debugstl:
             args.append('-D_GLIBCXX_DEBUG=1')
         return args
@@ -544,13 +533,17 @@ class GnuCPPCompiler(_StdCPPLibMixin, GnuCPPStds, GnuCompiler, CPPCompiler):
             if self.defines.get(macro) is not None:
                 return []
 
+        # For GCC, we can assume that the libstdc++ version is the same as
+        # the compiler itself. Anything else isn't supported.
         if self.language_stdlib_provider(env) == 'stdc++':
             return ['-D_GLIBCXX_ASSERTIONS=1']
         else:
+            # One can use -stdlib=libc++ with GCC, it just (as of 2025) requires
+            # an experimental configure arg to expose that. libc++ supports "multiple"
+            # versions of GCC (only ever one version of GCC per libc++ version), but
+            # that is "multiple" for our purposes as we can't assume a mapping.
             if version_compare(self.version, '>=18'):
                 return ['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST']
-            elif version_compare(self.version, '>=15'):
-                return ['-D_LIBCPP_ENABLE_ASSERTIONS=1']
 
         return []
 
@@ -1133,3 +1126,17 @@ class MetrowerksCPPCompilerEmbeddedPowerPC(MetrowerksCompiler, CPPCompiler):
         if std != 'none':
             args.append('-lang ' + std)
         return args
+
+
+class Xc32CPPCompiler(Xc32CPPStds, Xc32Compiler, GnuCPPCompiler):
+
+    """Microchip XC32 C++ compiler."""
+
+    def __init__(self, ccache: T.List[str], exelist: T.List[str], version: str, for_machine: MachineChoice, is_cross: bool,
+                 info: MachineInfo,
+                 linker: T.Optional[DynamicLinker] = None,
+                 defines: T.Optional[T.Dict[str, str]] = None,
+                 full_version: T.Optional[str] = None):
+        GnuCPPCompiler.__init__(self, ccache, exelist, version, for_machine, is_cross,
+                                info, linker=linker, full_version=full_version, defines=defines)
+        Xc32Compiler.__init__(self)

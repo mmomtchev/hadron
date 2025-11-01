@@ -22,7 +22,7 @@ from .. import mlog, mesonlib
 from .. import options
 from ..mesonlib import MachineChoice, OrderedSet, path_is_in_root, relative_to_if_possible
 from ..options import OptionKey
-from ..environment import detect_ninja
+from ..tooldetect import detect_ninja
 from ..mesondata import DataFile
 from ..compilers.compilers import assembler_suffixes, lang_suffixes, header_suffixes, obj_suffixes, lib_suffixes, is_header
 from ..programs import ExternalProgram
@@ -259,6 +259,8 @@ class ConverterTarget:
         self.compile_opts: T.Dict[str, T.List[str]] = {}
         self.public_compile_opts: T.List[str] = []
         self.pie = False
+        self.version: T.Optional[str] = None
+        self.soversion: T.Optional[str] = None
         self.install_rpath: T.Optional[str] = None
         self.build_rpath: T.Optional[str] = None
 
@@ -375,6 +377,8 @@ class ConverterTarget:
         tgt = trace.targets.get(self.cmake_name)
         if tgt:
             self.depends_raw = trace.targets[self.cmake_name].depends
+            self.version = trace.targets[self.cmake_name].properties.get('VERSION', [None])[0]
+            self.soversion = trace.targets[self.cmake_name].properties.get('SOVERSION', [None])[0]
 
             rtgt = resolve_cmake_trace_targets(self.cmake_name, trace, self.env, clib_compiler=self.clib_compiler)
             # FIXME: In theory, only IMPORTED and INTERFACE targets need
@@ -809,12 +813,12 @@ class ConverterCustomTarget:
         mlog.log('  -- depends:      ', mlog.bold(str(self.depends)))
 
 class CMakeInterpreter:
-    def __init__(self, subdir: Path, install_prefix: Path, env: 'Environment', backend: 'Backend'):
+    def __init__(self, subdir: Path, env: 'Environment', backend: 'Backend'):
         self.subdir = subdir
         self.src_dir = Path(env.get_source_dir(), subdir)
         self.build_dir_rel = subdir / '__CMake_build'
         self.build_dir = Path(env.get_build_dir()) / self.build_dir_rel
-        self.install_prefix = install_prefix
+        self.install_prefix = Path(T.cast('str', env.coredata.optstore.get_value_for(OptionKey('prefix'))))
         self.env = env
         self.for_machine = MachineChoice.HOST # TODO make parameter
         self.backend_name = backend.name
@@ -871,6 +875,8 @@ class CMakeInterpreter:
         cmake_args = []
         cmake_args += cmake_get_generator_args(self.env)
         cmake_args += [f'-DCMAKE_INSTALL_PREFIX={self.install_prefix.as_posix()}']
+        libdir = self.env.coredata.optstore.get_value_for(OptionKey('libdir'))
+        cmake_args += [f'-DCMAKE_INSTALL_LIBDIR={libdir}']
         cmake_args += extra_cmake_options
         if any(arg.startswith('-DCMAKE_BUILD_TYPE=') for arg in cmake_args):
             # Allow to override the CMAKE_BUILD_TYPE environment variable
@@ -891,6 +897,10 @@ class CMakeInterpreter:
 
         trace_args = self.trace.trace_args()
         cmcmp_args = [f'-DCMAKE_POLICY_WARNING_{x}=OFF' for x in DISABLE_POLICY_WARNINGS]
+
+        if mesonlib.version_compare(cmake_exe.version(), '>= 3.25'):
+            # Enable MSVC debug information variable
+            cmcmp_args += ['-DCMAKE_POLICY_CMP0141=NEW']
 
         self.fileapi.setup_request()
 
@@ -1224,6 +1234,12 @@ class CMakeInterpreter:
                 'override_options': options.get_override_options(tgt.cmake_name, tgt.override_options),
                 'objects': [method(x, 'extract_all_objects') for x in objec_libs],
             }
+
+            # Only set version if we know it
+            if tgt.version:
+                tgt_kwargs['version'] = tgt.version
+            if tgt.soversion:
+                tgt_kwargs['soversion'] = tgt.soversion
 
             # Only set if installed and only override if it is set
             if install_tgt and tgt.install_dir:

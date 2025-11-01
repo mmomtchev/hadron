@@ -173,15 +173,18 @@ def is_object(fname: 'mesonlib.FileOrString') -> bool:
         fname = fname.fname
     return cached_is_object_by_name(fname)
 
-def is_library(fname: 'mesonlib.FileOrString') -> bool:
-    if isinstance(fname, mesonlib.File):
-        fname = fname.fname
-
+@lru_cache(maxsize=None)
+def cached_is_library_by_name(fname: str) -> bool:
     if soregex.match(fname):
         return True
 
     suffix = fname.split('.')[-1]
     return suffix in lib_suffixes
+
+def is_library(fname: 'mesonlib.FileOrString') -> bool:
+    if isinstance(fname, mesonlib.File):
+        fname = fname.fname
+    return cached_is_library_by_name(fname)
 
 def is_known_suffix(fname: 'mesonlib.FileOrString') -> bool:
     if isinstance(fname, mesonlib.File):
@@ -354,6 +357,8 @@ def get_base_link_args(target: 'BuildTarget',
                 threads=num_threads,
                 mode=lto_mode,
                 thinlto_cache_dir=thinlto_cache_dir))
+            obj_cache_path = os.path.join('@PRIVATE_DIR@', "lto.o")
+            args.extend(linker.get_lto_obj_cache_path(obj_cache_path))
     except (KeyError, AttributeError):
         pass
     try:
@@ -822,7 +827,7 @@ class Compiler(HoldableObject, metaclass=abc.ABCMeta):
         if extra_args is None:
             extra_args = []
 
-        with TemporaryDirectoryWinProof(dir=temp_dir) as tmpdirname:
+        with TemporaryDirectoryWinProof(dir=temp_dir if temp_dir else None) as tmpdirname:
             no_ccache = False
             if isinstance(code, str):
                 srcname = os.path.join(tmpdirname,
@@ -1036,6 +1041,9 @@ class Compiler(HoldableObject, metaclass=abc.ABCMeta):
                           thinlto_cache_dir: T.Optional[str] = None) -> T.List[str]:
         return self.linker.get_lto_args()
 
+    def get_lto_obj_cache_path(self, path: str) -> T.List[str]:
+        return self.linker.get_lto_obj_cache_path(path)
+
     def sanitizer_compile_args(self, value: T.List[str]) -> T.List[str]:
         return []
 
@@ -1234,6 +1242,9 @@ class Compiler(HoldableObject, metaclass=abc.ABCMeta):
 
     def get_include_args(self, path: str, is_system: bool) -> T.List[str]:
         return []
+
+    def get_depfile_format(self) -> str:
+        return 'msvc' if self.get_argument_syntax() == 'msvc' else 'gcc'
 
     def depfile_for_object(self, objfile: str) -> T.Optional[str]:
         return objfile + '.' + self.get_depfile_suffix()

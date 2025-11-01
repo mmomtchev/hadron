@@ -55,7 +55,7 @@ class EmscriptenMixin(Compiler):
 
     def thread_link_flags(self, env: 'Environment') -> T.List[str]:
         args = ['-pthread']
-        count = env.coredata.optstore.get_value(OptionKey(f'{self.language}_thread_count', machine=self.for_machine))
+        count = env.coredata.optstore.get_value_for(OptionKey(f'{self.language}_thread_count', machine=self.for_machine))
         assert isinstance(count, int)
         if count:
             args.append(f'-sPTHREAD_POOL_SIZE={count}')
@@ -65,7 +65,7 @@ class EmscriptenMixin(Compiler):
         return emscripten_debug_args[is_debug]
 
     def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
-        if env.coredata.optstore.get_value(OptionKey('debug', machine=self.for_machine)):
+        if env.coredata.optstore.get_value_for(OptionKey('debug', machine=self.for_machine)):
             return ['-gsource-map']
         return []
 

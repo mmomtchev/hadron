@@ -9,8 +9,8 @@ import typing as T
 
 from .. import mesonlib
 from .. import dependencies
-from .. import build
-from .. import mlog, coredata
+from .. import build, cmdline
+from .. import mlog
 
 from ..mesonlib import MachineChoice
 from ..options import OptionKey
@@ -26,6 +26,7 @@ if T.TYPE_CHECKING:
     from typing_extensions import Literal, TypedDict
 
     from ..compilers import Compiler
+    from ..dependencies.base import DependencyObjectKWs
     from ..interpreterbase import TYPE_kwargs, TYPE_var
     from ..mesonlib import ExecutableSerialisation
     from .interpreter import Interpreter
@@ -129,7 +130,7 @@ class MesonMain(MesonInterpreterObject):
     def add_install_script_method(
             self,
             args: T.Tuple[T.Union[str, mesonlib.File, build.Executable, ExternalProgram],
-                          T.List[T.Union[str, mesonlib.File, build.BuildTarget, build.CustomTarget, build.CustomTargetIndex, ExternalProgram]]],
+                          T.List[T.Union[str, mesonlib.File, build.BuildTargetTypes, ExternalProgram]]],
             kwargs: 'AddInstallScriptKW') -> None:
         script_args = self._process_script_args('add_install_script', args[1])
         script = self._find_source_script('add_install_script', args[0], script_args)
@@ -381,11 +382,8 @@ class MesonMain(MesonInterpreterObject):
                                   static: T.Optional[bool], permissive: bool = False) -> None:
         # We need the cast here as get_dep_identifier works on such a dict,
         # which FuncOverrideDependency is, but mypy can't figure that out
-        nkwargs = T.cast('T.Dict[str, T.Any]', kwargs.copy())
-        if static is None:
-            del nkwargs['static']
-        else:
-            nkwargs['static'] = static
+        nkwargs: DependencyObjectKWs = kwargs.copy()  # type: ignore[assignment]
+        nkwargs['static'] = static
         identifier = dependencies.get_dep_identifier(name, nkwargs)
         for_machine = kwargs['native']
         override = self.build.dependency_overrides[for_machine].get(identifier)
@@ -487,4 +485,4 @@ class MesonMain(MesonInterpreterObject):
         options = self.interpreter.user_defined_options
         if options is None:
             return ''
-        return coredata.format_cmd_line_options(options)
+        return cmdline.format_cmd_line_options(options)
