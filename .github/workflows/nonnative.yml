@@ -52,7 +52,7 @@ jobs:
 
   node-api-emscripten:
     runs-on: ubuntu-latest
-    container: mesonbuild/cuda-cross:latest
+    container: mesonbuild/ubuntu-rolling
     env:
       MESON_CI_JOBNAME: ubuntu-${{ github.job }}
 
