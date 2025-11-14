@@ -190,12 +190,7 @@ class NapiModule(ExtensionModule):
             cpp_args.append(f'-DEMNAPI_WORKER_POOL_SIZE={opts["async_pool"]}')
             link_args.append(f'-sDEFAULT_PTHREAD_STACK_SIZE={opts["stack"]}')
 
-        env = '-sENVIRONMENT='
-        for e in opts['environments']:
-            if e in node_api_defaults['environments']:
-                env += f'{e},'
-            else:
-                mlog.warning(f'Ignoring invalid environments {e}')
+        env = '-sENVIRONMENT=' + ','.join(opts['environments'])
         link_args.append(env)
 
         return c_args, cpp_args, link_args

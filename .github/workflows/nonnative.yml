@@ -52,18 +52,20 @@ jobs:
 
   node-api-emscripten:
     runs-on: ubuntu-latest
-    container: mesonbuild/eoan:latest
+    container: mesonbuild/ubuntu-rolling
     env:
       MESON_CI_JOBNAME: ubuntu-${{ github.job }}
 
     steps:
+    - uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 4.0.19
     - run: |
         apt-get -y purge clang gcc gdc
         apt-get -y autoremove
         python3 -m pip install coverage
     - uses: actions/checkout@v3
-    - uses: mymindstorm/setup-emsdk@v14
-      with:
-        version: 4.0.2
+    - name: Check that emcc works
+      run: emcc --version
     - name: Run tests
       run: bash -c 'source /ci/env_vars.sh; cd $GITHUB_WORKSPACE; ./run_tests.py $CI_ARGS --cross node-api-emscripten.json --cross-only --only node-api'
