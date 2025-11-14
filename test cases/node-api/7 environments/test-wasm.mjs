@@ -5,15 +5,12 @@ import * as path from 'node:path';
 
 import { assert } from 'chai';
 
-const AsyncFunction = (async () => { }).constructor;
+// A Node.js-exclusive emscripten loader
+// should work even if it can't detect Node.js
+delete process.versions.node;
 
 import(path.resolve(env.NODE_PATH, env.NODE_ADDON))
-  .then((m) => {
-    const r = m.default;
-    if (r instanceof AsyncFunction)
-      throw new Error('This is not a Node.js-exclusive loader');
-    return r();
-  })
+  .then((m) => m.default())
   .then((r) => {
     const module = r.emnapiInit({ context: emnapi.getDefaultContext() });
     assert.isObject(r.FS);
@@ -24,4 +21,3 @@ import(path.resolve(env.NODE_PATH, env.NODE_ADDON))
   .then((addon) => {
     assert.strictEqual(addon.HelloWorld(), 'world');
   });
-
