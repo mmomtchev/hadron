@@ -1,5 +1,5 @@
 project(
-  'Hello World for meson',
+  'Environments test',
   ['c', 'cpp']
 )
 
@@ -8,14 +8,17 @@ run_command(['npm', '--prefix', meson.global_source_root(), 'install'], check: t
 napi = import('node-api')
 
 addon = napi.extension_module(
-  'hello_world',
+  'env',
   [ 'hello_world.cc' ],
   install: true,
-  node_api_options: { 'environments': ['node'], 'exported_runtime_methods': ['emnapiInit', 'FS'] }
+  node_api_options: {
+    'environments': ['node'],
+    'exported_runtime_methods': ['emnapiInit', 'FS']
+    }
   )
 
 if host_machine.system() == 'emscripten'
-  napi.test('hello_world_test', 'test-wasm.mjs', addon)
+  napi.test('env_test', 'test-wasm.mjs', addon)
 else
-  napi.test('hello_world_test', 'test-native.cjs', addon)
+  napi.test('env_test', 'test-native.cjs', addon)
 endif
