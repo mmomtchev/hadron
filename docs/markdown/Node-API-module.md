@@ -103,7 +103,7 @@ addon = napi.extension_module(
     'es6':              true,
     'stack':            '2MB',
     'swig':             false,
-    'environments':     [ 'node', 'web', 'webview', 'worker' ]
+    'environments':     [ 'node', 'web', 'webview', 'worker', 'shell' ]
   })
 ```
 

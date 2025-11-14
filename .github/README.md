@@ -528,7 +528,7 @@ addon = napi.extension_module(
     'es6':                      True,
     'stack':                    '2MB',
     'swig':                     False,
-    'environments':             ['node', 'web', 'webview', 'worker'],
+    'environments':             ['node', 'web', 'webview', 'worker', 'shell'],
     'exported_functions':       ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1']',
     'exported_runtime_methods': ['emnapiInit']
   })
