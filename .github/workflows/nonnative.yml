@@ -65,5 +65,7 @@ jobs:
     - uses: mymindstorm/setup-emsdk@v14
       with:
         version: 4.0.19
+    - name: Check that emcc works
+      run: emcc --version
     - name: Run tests
       run: bash -c 'source /ci/env_vars.sh; cd $GITHUB_WORKSPACE; ./run_tests.py $CI_ARGS --cross node-api-emscripten.json --cross-only --only node-api'
