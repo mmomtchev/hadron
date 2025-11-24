@@ -175,6 +175,7 @@ These are provided by the `.system()` method call.
 | openbsd             | |
 | windows             | Native Windows (not Cygwin or MSYS2) |
 | sunos               | illumos and Solaris |
+| os/2                | OS/2 |
 
 Any string not listed above is not guaranteed to remain stable in
 future releases.
@@ -296,6 +297,7 @@ which are supported by GCC, Clang, and other compilers.
 | const                       |
 | constructor                 |
 | constructor_priority        |
+| counted_by⁸                 |
 | deprecated                  |
 | destructor                  |
 | error                       |
@@ -350,6 +352,8 @@ which are supported by GCC, Clang, and other compilers.
 ⁶ *New in 1.1.0*
 
 ⁷ *New in 1.5.0*
+
+⁸ *New in 1.10.0*
 
 ### MSVC __declspec
 

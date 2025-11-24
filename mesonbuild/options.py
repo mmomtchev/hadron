@@ -60,8 +60,8 @@ DEFAULT_YIELDING = False
 # Can't bind this near the class method it seems, sadly.
 _T = T.TypeVar('_T')
 
-backendlist = ['ninja', 'vs', 'vs2010', 'vs2012', 'vs2013', 'vs2015', 'vs2017', 'vs2019', 'vs2022', 'xcode', 'none']
-genvslitelist = ['vs2022']
+backendlist = ['ninja', 'vs', 'vs2010', 'vs2012', 'vs2013', 'vs2015', 'vs2017', 'vs2019', 'vs2022', 'vs2026', 'xcode', 'none']
+genvslitelist = ['vs2022', 'vs2026']
 buildtypelist = ['plain', 'debug', 'debugoptimized', 'release', 'minsize', 'custom']
 
 # This is copied from coredata. There is no way to share this, because this
@@ -105,6 +105,7 @@ _BUILTIN_NAMES = {
     'pkg_config_path',
     'cmake_prefix_path',
     'vsenv',
+    'os2_emxomf',
 }
 
 _BAD_VALUE = 'Qwert Zuiopü'
@@ -733,6 +734,7 @@ BUILTIN_CORE_OPTIONS: T.Mapping[OptionKey, AnyOptionType] = {
         UserComboOption('wrap_mode', 'Wrap mode', 'default', choices=['default', 'nofallback', 'nodownload', 'forcefallback', 'nopromote']),
         UserStringArrayOption('force_fallback_for', 'Force fallback for those subprojects', []),
         UserBooleanOption('vsenv', 'Activate Visual Studio environment', False, readonly=True),
+        UserBooleanOption('os2_emxomf', 'Use OMF format on OS/2', False),
 
         # Pkgconfig module
         UserBooleanOption('pkgconfig.relocatable', 'Generate pkgconfig files as relocatable', False),
@@ -933,7 +935,7 @@ class OptionStore:
                 # Subproject is set to yield, but top level
                 # project does not have an option of the same
                 pass
-        valobj.yielding = bool(valobj.parent)
+        valobj.yielding = valobj.parent is not None
 
         self.options[key] = valobj
         self.project_options.add(key)

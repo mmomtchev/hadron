@@ -793,6 +793,7 @@ class JsonLogfileBuilder(TestFileLogger):
             'name': result.name,
             'stdout': result.stdo,
             'result': result.res.value,
+            'is_fail': result.res.is_bad(),
             'starttime': result.starttime,
             'duration': result.duration,
             'returncode': result.returncode,
@@ -1890,7 +1891,12 @@ class TestHarness:
             raise RuntimeError('Test harness object can only be used once.')
         self.is_run = True
         tests = self.get_tests()
-        rebuild_only_tests = tests if self.options.args else []
+        # NOTE: If all tests are selected anyway, we pass
+        # an empty list to `rebuild_deps`, which then will execute
+        # the "meson-test-prereq" ninja target as a fallback.
+        # This prevents situations, where ARG_MAX may overflow
+        # if there are many targets.
+        rebuild_only_tests = tests if tests != self.tests else []
         if not tests:
             return 0
         if not self.options.no_rebuild and not rebuild_deps(self.ninja, self.options.wd, rebuild_only_tests, self.options.benchmark):
@@ -1921,7 +1927,7 @@ class TestHarness:
             self.run_tests(runners)
         finally:
             os.chdir(startdir)
-        return self.total_failure_count()
+        return 1 if self.total_failure_count() > 0 else 0
 
     @staticmethod
     def split_suite_string(suite: str) -> T.Tuple[str, str]:

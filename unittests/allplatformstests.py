@@ -895,7 +895,13 @@ class AllPlatformTests(BasePlatformTests):
             self._run(command)
             self.assertEqual(0, failure_count, 'Expected %d tests to fail.' % failure_count)
         except subprocess.CalledProcessError as e:
-            self.assertEqual(e.returncode, failure_count)
+            actual_fails = 0
+            with open(os.path.join(self.logdir, 'testlog.json'), encoding='utf-8') as f:
+                for line in f:
+                    res = json.loads(line)
+                    if res['is_fail']:
+                        actual_fails += 1
+            self.assertEqual(actual_fails, failure_count)
 
     def test_suite_selection(self):
         testdir = os.path.join(self.unit_test_dir, '4 suite selection')
@@ -1443,7 +1449,7 @@ class AllPlatformTests(BasePlatformTests):
         Test that conflicts between -D for builtin options and the corresponding
         long option are detected without false positives or negatives.
         '''
-        testdir = os.path.join(self.unit_test_dir, '129 long opt vs D')
+        testdir = os.path.join(self.unit_test_dir, '130 long opt vs D')
 
         for opt in ['-Dsysconfdir=/etc', '-Dsysconfdir2=/etc']:
             exception_raised = False
@@ -2078,8 +2084,8 @@ class AllPlatformTests(BasePlatformTests):
         against what was detected in the binary.
         '''
         env, cc = get_convincing_fake_env_and_cc(self.builddir, self.prefix)
-        expected_uscore = cc._symbols_have_underscore_prefix_searchbin(env)
-        list_uscore = cc._symbols_have_underscore_prefix_list(env)
+        expected_uscore = cc._symbols_have_underscore_prefix_searchbin()
+        list_uscore = cc._symbols_have_underscore_prefix_list()
         if list_uscore is not None:
             self.assertEqual(list_uscore, expected_uscore)
         else:
@@ -2091,8 +2097,8 @@ class AllPlatformTests(BasePlatformTests):
         against what was detected in the binary.
         '''
         env, cc = get_convincing_fake_env_and_cc(self.builddir, self.prefix)
-        expected_uscore = cc._symbols_have_underscore_prefix_searchbin(env)
-        define_uscore = cc._symbols_have_underscore_prefix_define(env)
+        expected_uscore = cc._symbols_have_underscore_prefix_searchbin()
+        define_uscore = cc._symbols_have_underscore_prefix_define()
         if define_uscore is not None:
             self.assertEqual(define_uscore, expected_uscore)
         else:
@@ -2467,10 +2473,10 @@ class AllPlatformTests(BasePlatformTests):
         # lexer/parser/interpreter we have tests for.
         for (t, f) in [
             ('10 out of bounds', 'meson.build'),
-            ('18 wrong plusassign', 'meson.build'),
-            ('56 bad option argument', 'meson_options.txt'),
-            ('94 subdir parse error', os.path.join('subdir', 'meson.build')),
-            ('95 invalid option file', 'meson_options.txt'),
+            ('17 wrong plusassign', 'meson.build'),
+            ('55 bad option argument', 'meson_options.txt'),
+            ('93 subdir parse error', os.path.join('subdir', 'meson.build')),
+            ('94 invalid option file', 'meson_options.txt'),
         ]:
             tdir = os.path.join(self.src_root, 'test cases', 'failing', t)
 
@@ -2508,7 +2514,7 @@ class AllPlatformTests(BasePlatformTests):
             try:
                 comp = detect_compiler_for(env, l, MachineChoice.HOST, True, '')
                 with tempfile.TemporaryDirectory() as d:
-                    comp.sanity_check(d, env)
+                    comp.sanity_check(d)
                 langs.append(l)
             except EnvironmentException:
                 pass
@@ -2520,7 +2526,7 @@ class AllPlatformTests(BasePlatformTests):
 
         for lang in langs:
             for target_type in ('executable', 'library'):
-                with self.subTest(f'Language: {lang}; type: {target_type}'):
+                with self.subTest(f'Language: {lang}; type: {target_type}; fresh: yes'):
                     if is_windows() and lang == 'fortran' and target_type == 'library':
                         # non-Gfortran Windows Fortran compilers do not do shared libraries in a Fortran standard way
                         # see "test cases/fortran/6 dynamic"
@@ -2535,17 +2541,44 @@ class AllPlatformTests(BasePlatformTests):
                                   workdir=tmpdir)
                         self._run(ninja,
                                   workdir=os.path.join(tmpdir, 'builddir'))
-                # test directory with existing code file
-                if lang in {'c', 'cpp', 'd'}:
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(os.path.join(tmpdir, 'foo.' + lang), 'w', encoding='utf-8') as f:
-                            f.write('int main(void) {}')
-                        self._run(self.meson_command + ['init', '-b'], workdir=tmpdir)
-                elif lang in {'java'}:
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        with open(os.path.join(tmpdir, 'Foo.' + lang), 'w', encoding='utf-8') as f:
-                            f.write('public class Foo { public static void main() {} }')
-                        self._run(self.meson_command + ['init', '-b'], workdir=tmpdir)
+
+                with self.subTest(f'Language: {lang}; type: {target_type}; fresh: no'):
+                    # test directory with existing code file
+                    if lang in {'c', 'cpp', 'd'}:
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            with open(os.path.join(tmpdir, 'foo.' + lang), 'w', encoding='utf-8') as f:
+                                f.write('int main(void) {}')
+                            self._run(self.meson_command + ['init', '-b'], workdir=tmpdir)
+
+                        # Check for whether we're doing source collection by repeating
+                        # with a bogus file we should pick up (and then fail to compile).
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            with open(os.path.join(tmpdir, 'bar.' + lang), 'w', encoding='utf-8') as f:
+                                f.write('#error bar')
+                            self._run(self.meson_command + ['init'], workdir=tmpdir)
+                            self._run(self.setup_command + ['--backend=ninja', 'builddir'],
+                                    workdir=tmpdir)
+                            with self.assertRaises(subprocess.CalledProcessError):
+                                self._run(ninja,
+                                        workdir=os.path.join(tmpdir, 'builddir'))
+
+                    elif lang in {'java'}:
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            with open(os.path.join(tmpdir, 'Foo.' + lang), 'w', encoding='utf-8') as f:
+                                f.write('public class Foo { public static void main() {} }')
+                            self._run(self.meson_command + ['init', '-b'], workdir=tmpdir)
+
+                        # Check for whether we're doing source collection by repeating
+                        # with a bogus file we should pick up (and then fail to compile).
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            with open(os.path.join(tmpdir, 'Bar.' + lang), 'w', encoding='utf-8') as f:
+                                f.write('public class Bar { public private static void main() {} }')
+                            self._run(self.meson_command + ['init'], workdir=tmpdir)
+                            self._run(self.setup_command + ['--backend=ninja', 'builddir'],
+                                    workdir=tmpdir)
+                            with self.assertRaises(subprocess.CalledProcessError):
+                                self._run(ninja,
+                                        workdir=os.path.join(tmpdir, 'builddir'))
 
     def test_compiler_run_command(self):
         '''
@@ -3061,7 +3094,7 @@ class AllPlatformTests(BasePlatformTests):
     @skipIf(is_windows(), 'POSIX only')
     def test_python_build_config_extensions(self):
         testdir = os.path.join(self.unit_test_dir,
-                               '125 python extension')
+                               '126 python extension')
 
         VERSION_INFO_KEYS = ('major', 'minor', 'micro', 'releaselevel', 'serial')
         EXTENSION_SUFFIX = '.extension-suffix.so'
@@ -4474,6 +4507,14 @@ class AllPlatformTests(BasePlatformTests):
         self.build()
         self.run_tests()
 
+    def test_custom_target_index_as_test_prereq(self):
+        if self.backend is not Backend.ninja:
+            raise SkipTest('ninja backend needed for "meson test" to build test dependencies')
+
+        testdir = os.path.join(self.unit_test_dir, '132 custom target index test')
+        self.init(testdir)
+        self.run_tests()
+
     @skipUnless(is_linux() and (re.search('^i.86$|^x86$|^x64$|^x86_64$|^amd64$', platform.processor()) is not None),
         'Requires ASM compiler for x86 or x86_64 platform currently only available on Linux CI runners')
     def test_nostdlib(self):
@@ -5428,7 +5469,7 @@ class AllPlatformTests(BasePlatformTests):
         self.__test_multi_stds(test_objc=True)
 
     def test_slice(self):
-        testdir = os.path.join(self.unit_test_dir, '127 test slice')
+        testdir = os.path.join(self.unit_test_dir, '128 test slice')
         self.init(testdir)
         self.build()
 
@@ -5440,7 +5481,9 @@ class AllPlatformTests(BasePlatformTests):
                                  '10/10': [10],
                                  }.items():
             output = self._run(self.mtest_command + ['--slice=' + arg])
-            tests = sorted([ int(x) for x in re.findall(r'\n[ 0-9]+/[0-9]+ test_slice:test-([0-9]*)', output) ])
+            tests = sorted([
+                int(x) for x in re.findall(r'^[ 0-9]+/[0-9]+ test_slice:test-([0-9]*)', output, flags=re.MULTILINE)
+            ])
             self.assertEqual(tests, expectation)
 
         for arg, expectation in {'': 'error: argument --slice: value does not conform to format \'SLICE/NUM_SLICES\'',

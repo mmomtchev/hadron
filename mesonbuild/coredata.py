@@ -44,7 +44,7 @@ if T.TYPE_CHECKING:
 #
 # Pip requires that RCs are named like this: '0.1.0.rc1'
 # But the corresponding Git tag needs to be '0.1.0rc1'
-version = '1.9.99'
+version = '1.10.0.rc1'
 
 # The next stable version when we are in dev. This is used to allow projects to
 # require meson version >=1.2.0 when using 1.1.99. FeatureNew won't warn when
@@ -447,6 +447,8 @@ class CoreData:
                 skey = key
             if skey not in self.optstore:
                 self.optstore.add_system_option(skey, copy.deepcopy(options.COMPILER_BASE_OPTIONS[key]))
+
+        comp.init_from_options()
 
         self.emit_base_options_warnings()
 
