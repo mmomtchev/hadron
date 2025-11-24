@@ -63,12 +63,12 @@ class EmscriptenMixin(Compiler):
     def get_debug_args(self, is_debug: bool) -> T.List[str]:
         return emscripten_debug_args[is_debug]
 
-    def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
-        if env.coredata.optstore.get_value_for(OptionKey('debug', machine=self.for_machine)):
+    def get_option_link_args(self, target: 'BuildTarget', subproject: T.Optional[str] = None) -> T.List[str]:
+        if self.get_compileropt_value('debug', target, subproject):
             return ['-gsource-map']
         return []
 
-    def sanitizer_link_args(self, value: T.List[str]) -> T.List[str]:
+    def sanitizer_link_args(self, target: BuildTarget | None, value: list[str]) -> list[str]:
         if 'address' in value:
             return ['-sSAFE_HEAP=1', '-sASSERTIONS=2', '-sSTACK_OVERFLOW_CHECK=2']
         return []

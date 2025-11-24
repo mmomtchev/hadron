@@ -366,7 +366,7 @@ class EmscriptenCPPCompiler(EmscriptenMixin, ClangCPPCompiler):
         if std != 'none':
             args.append(self._find_best_cpp_std(std))
 
-        eh = self.get_compileropt_value('eh', env, target, subproject)
+        eh = self.get_compileropt_value('eh', target, subproject)
         assert isinstance(eh, str)
         non_msvc_eh_options(eh, args)
 
