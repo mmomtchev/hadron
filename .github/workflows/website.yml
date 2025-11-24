@@ -28,6 +28,7 @@ permissions:
 # change here.
 jobs:
   update_website:
+    if: false
     env:
       HAS_SSH_KEY: ${{ secrets.WEBSITE_PRIV_KEY != '' }}
     runs-on: ubuntu-latest
