@@ -281,7 +281,7 @@ class InternalTests(unittest.TestCase):
     def test_compiler_args_do_not_remove_system_if_sysroot(self):
         env = get_fake_env()
         linker = linkers.GnuBFDDynamicLinker([], env, MachineChoice.HOST, '-Wl,', [])
-        gcc = GnuCCompiler([], [], 'fake', False, MachineChoice.HOST, mock.Mock(), linker=linker)
+        gcc = GnuCCompiler([], [], 'fake', False, MachineChoice.HOST, env, linker=linker)
         gcc.get_default_include_dirs = lambda: ['/usr/include', '/usr/share/include', '/usr/local/include']
         l = gcc.compiler_args(['-Lfoodir', '-lfoo'])
         self.assertEqual(l.to_native(copy=True), ['-Lfoodir', '-lfoo'])
@@ -296,7 +296,7 @@ class InternalTests(unittest.TestCase):
     def test_compiler_args_do_not_break_two_args_include(self):
         env = get_fake_env()
         linker = linkers.GnuBFDDynamicLinker([], env, MachineChoice.HOST, '-Wl,', [])
-        gcc = GnuCCompiler([], [], 'fake', False, MachineChoice.HOST, mock.Mock(), linker=linker)
+        gcc = GnuCCompiler([], [], 'fake', False, MachineChoice.HOST, env, linker=linker)
         gcc.get_default_include_dirs = lambda: ['/usr/include', '/usr/share/include', '/usr/local/include']
         l = gcc.compiler_args(['-Lfoodir', '-lfoo'])
         self.assertEqual(l.to_native(copy=True), ['-Lfoodir', '-lfoo'])
