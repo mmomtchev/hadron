@@ -181,6 +181,7 @@ class CustomTarget(TypedDict):
     build_always: bool
     build_always_stale: T.Optional[bool]
     build_by_default: T.Optional[bool]
+    build_subdir: str
     capture: bool
     command: T.List[T.Union[str, build.BuildTargetTypes, ExternalProgram, File]]
     console: bool
@@ -309,6 +310,7 @@ class ConfigureFile(TypedDict):
     input: T.List[FileOrString]
     configuration: T.Optional[T.Union[T.Dict[str, T.Union[str, int, bool]], build.ConfigurationData]]
     macro_name: T.Optional[str]
+    build_subdir: str
 
 
 class Subproject(ExtractRequired):
@@ -348,7 +350,7 @@ class _BaseBuildTarget(TypedDict):
     name_suffix: T.Optional[str]
     native: MachineChoice
     objects: T.List[build.ObjectTypes]
-    override_options: T.Dict[OptionKey, options.ElementaryOptionValues]
+    override_options: T.Dict[str, options.ElementaryOptionValues]
     depend_files: NotRequired[T.List[File]]
     resources: T.List[str]
     vala_header: T.Optional[str]
@@ -364,10 +366,13 @@ class _BuildTarget(_BaseBuildTarget):
     d_import_dirs: T.List[T.Union[str, build.IncludeDirs]]
     d_module_versions: T.List[T.Union[str, int]]
     d_unittest: bool
+    rust_crate_type: T.Optional[Literal['bin', 'lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'proc-macro']]
     rust_dependency_map: T.Dict[str, str]
     swift_interoperability_mode: Literal['c', 'cpp']
     swift_module_name: str
     sources: SourcesVarargsType
+    c_pch: T.List[str]
+    cpp_pch: T.List[str]
     c_args: T.List[str]
     cpp_args: T.List[str]
     cuda_args: T.List[str]

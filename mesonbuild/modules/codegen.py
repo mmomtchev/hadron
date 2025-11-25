@@ -107,7 +107,7 @@ class LexHolder(ObjectHolder[LexGenerator]):
 
     @noPosargs
     @noKwargs
-    @InterpreterObject.method('generate')
+    @InterpreterObject.method('implementation')
     def implementation_method(self, args: T.List[TYPE_var], kwargs: TYPE_kwargs) -> str:
         return self.held_object.name
 
@@ -157,7 +157,7 @@ class LexHolder(ObjectHolder[LexGenerator]):
                 comp = self.interpreter.environment.coredata.compilers[for_machine]['cpp']
             except KeyError:
                 raise MesonException(f"Could not find a C++ compiler for {for_machine} to search for FlexLexer.h")
-            found, _ = comp.has_header('FlexLexer.h', '', self.interpreter.environment)
+            found, _ = comp.has_header('FlexLexer.h', '')
             if not found:
                 raise MesonException('Could not find FlexLexer.h, which is required for Flex with C++')
 

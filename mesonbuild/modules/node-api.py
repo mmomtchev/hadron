@@ -324,7 +324,7 @@ class NapiModule(ExtensionModule):
             kwargs.setdefault('include_directories', []).extend([str(node_addon_api_dir)])
             # The default C++ standard when using node-addon-api should be C++20
             if 'cpp_std' not in kwargs.setdefault('override_options', {}):
-                kwargs['override_options'][T.cast(OptionKey, 'cpp_std')] = 'c++20'
+                kwargs['override_options']['cpp_std'] = 'c++20'
 
         if self.napi_includes:
             napi_includes = self.relativize(self.napi_includes, source_dir)
