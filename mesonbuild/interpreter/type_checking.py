@@ -614,6 +614,7 @@ _ALL_TARGET_KWS: T.List[KwargInfo] = [
         feature_validator=_target_install_feature_validator,
     ),
     INSTALL_MODE_KW,
+    INSTALL_TAG_KW,
     KwargInfo('implicit_include_directories', bool, default=True, since='0.42.0'),
     NATIVE_KW,
     KwargInfo('resources', ContainerTypeInfo(list, str), default=[], listify=True),
@@ -740,6 +741,12 @@ _BUILD_TARGET_KWS: T.List[KwargInfo] = [
         since='0.48.0',
     ),
     KwargInfo('install_rpath', str, default=''),
+    KwargInfo(
+        'link_args',
+        ContainerTypeInfo(list, str),
+        default=[],
+        listify=True,
+    ),
     KwargInfo(
         'link_depends',
         ContainerTypeInfo(list, (str, File, CustomTarget, CustomTargetIndex, BuildTarget)),
