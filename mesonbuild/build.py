@@ -22,7 +22,7 @@ from . import programs
 from .mesonlib import (
     HoldableObject, SecondLevelHolder,
     File, MesonException, MachineChoice, PerMachine, OrderedSet, listify,
-    extract_as_list, typeslistify, stringlistify, classify_unity_sources,
+    extract_as_list, typeslistify, classify_unity_sources,
     get_filenames_templates_dict, substitute_values, has_path_sep,
     is_parent_path, relpath, PerMachineDefaultable,
     MesonBugException, EnvironmentVariables, pickle_load, lazy_property,
@@ -85,7 +85,7 @@ if T.TYPE_CHECKING:
         install_dir: T.List[T.Union[str, Literal[False]]]
         install_mode: FileMode
         install_rpath: str
-        install_tag: T.List[str]
+        install_tag: T.List[T.Optional[str]]
         language_args: T.DefaultDict[str, T.List[str]]
         link_args: T.List[str]
         link_depends: T.List[T.Union[str, File, CustomTarget, CustomTargetIndex]]
@@ -1174,20 +1174,23 @@ class BuildTarget(Target):
         at link time, see get_dependencies() for that.
         """
         result: OrderedSet[BuildTargetTypes] = OrderedSet()
+        nonresults: T.Set[BuildTargetTypes] = set()
         stack: T.Deque[BuildTargetTypes] = deque()
         stack.appendleft(self)
         while stack:
             t = stack.pop()
-            if t in result:
+            if t in result or t in nonresults:
                 continue
             if isinstance(t, CustomTargetIndex):
                 stack.appendleft(t.target)
                 continue
             if isinstance(t, SharedLibrary):
                 result.add(t)
+            else:
+                nonresults.add(t)
             if isinstance(t, BuildTarget):
-                stack.extendleft(t.link_targets)
-                stack.extendleft(t.link_whole_targets)
+                stack.extendleft((t2 for t2 in t.link_targets if t2 not in nonresults))
+                stack.extendleft((t2 for t2 in t.link_whole_targets if t2 not in nonresults))
         return list(result)
 
     @lru_cache(maxsize=None)
@@ -1271,10 +1274,7 @@ class BuildTarget(Target):
         self.pch['c'] = kwargs.get('c_pch')
         self.pch['cpp'] = kwargs.get('cpp_pch')
 
-        self.link_args = extract_as_list(kwargs, 'link_args')
-        for i in self.link_args:
-            if not isinstance(i, str):
-                raise InvalidArguments('Link_args arguments must be strings.')
+        self.link_args = kwargs.get('link_args', [])
         for l in self.link_args:
             if '-Wl,-rpath' in l or l.startswith('-rpath'):
                 mlog.warning(textwrap.dedent('''\
@@ -1295,7 +1295,7 @@ class BuildTarget(Target):
         self.install_dir = typeslistify(kwargs.get('install_dir', []),
                                         (str, bool))
         self.install_mode = kwargs.get('install_mode', None)
-        self.install_tag = stringlistify(kwargs.get('install_tag', [None]))
+        self.install_tag: T.List[T.Optional[str]] = kwargs.get('install_tag') or [None]
         self.extra_files = kwargs.get('extra_files', [])
         self.install_rpath: str = kwargs.get('install_rpath', '')
         self.build_rpath = kwargs.get('build_rpath', '')
