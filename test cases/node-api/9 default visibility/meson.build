@@ -10,8 +10,7 @@ napi = import('node-api')
 addon = napi.extension_module(
   'not_visible',
   [ 'hello_world.cc' ],
-  install: true,
-  gnu_symbol_visibility: 'hidden'
+  install: true
   )
 
 if host_machine.system() == 'emscripten'
