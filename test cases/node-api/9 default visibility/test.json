@@ -1,0 +1,12 @@
+{
+  "installed": [
+    {
+      "type": "js_module_main",
+      "file": "usr/not_visible"
+    },
+    {
+      "type": "js_module_ext",
+      "file": "usr/not_visible"
+    }
+  ]
+}

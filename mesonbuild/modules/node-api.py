@@ -15,7 +15,7 @@ from .. import mlog
 from ..options import OptionKey
 from ..build import IncludeDirs, known_shmod_kwargs, CustomTarget, CustomTargetIndex, BuildTarget, GeneratedList, StructuredSources, ExtractedObjects, SharedModule
 from ..programs import ExternalProgram
-from ..interpreter.type_checking import SHARED_MOD_KWS, TEST_KWS
+from ..interpreter.type_checking import SHARED_MOD_KWS, TEST_KWS, in_set_validator
 from ..interpreterbase import (
     permittedKwargs, typed_pos_args, typed_kwargs, KwargInfo
 )
@@ -45,9 +45,10 @@ name_suffix_native = 'node'
 name_suffix_wasm_es6 = 'mjs'
 name_suffix_wasm_cjs = 'js'
 
+node_api_banned_kws = {'name_prefix', 'name_suffix'}
 mod_kwargs = {'node_api_options'}
 mod_kwargs.update(known_shmod_kwargs)
-mod_kwargs -= {'name_prefix', 'name_suffix'}
+mod_kwargs -= node_api_banned_kws
 
 swig_cpp_defaults_shared = [
     '-Wno-deprecated-declarations',
@@ -71,7 +72,8 @@ swig_cpp_defaults = {
     'emscripten': swig_cpp_defaults_clang
 }
 
-_MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in {'name_prefix', 'name_suffix', 'install_dir'}]
+node_api_overloaded_kws = {'install_dir', 'gnu_symbol_visibility'}
+_MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in (node_api_banned_kws | node_api_overloaded_kws)]
 
 # These are the defauls
 node_api_defaults: 'NodeAPIOptions' = {
@@ -85,6 +87,10 @@ node_api_defaults: 'NodeAPIOptions' = {
 }
 _NODE_API_OPTS_KW = [
     *_MOD_KWARGS,
+    KwargInfo('gnu_symbol_visibility', str, default='hidden',
+              validator=in_set_validator({'', 'default', 'internal', 'hidden', 'protected', 'inlineshidden'}),
+              since='0.48.0',
+              ),
     KwargInfo('install_dir', ContainerTypeInfo(list, (str, bool)), default=[''], listify=True),
     KwargInfo('node_api_options', dict, default=node_api_defaults)
 ]
