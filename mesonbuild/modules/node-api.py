@@ -13,12 +13,13 @@ from . import ExtensionModule, ModuleInfo
 from .. import mesonlib
 from .. import mlog
 from ..options import OptionKey
-from ..build import known_shmod_kwargs, CustomTarget, CustomTargetIndex, BuildTarget, GeneratedList, StructuredSources, ExtractedObjects, SharedModule
+from ..build import IncludeDirs, known_shmod_kwargs, CustomTarget, CustomTargetIndex, BuildTarget, GeneratedList, StructuredSources, ExtractedObjects, SharedModule
 from ..programs import ExternalProgram
 from ..interpreter.type_checking import SHARED_MOD_KWS, TEST_KWS
 from ..interpreterbase import (
     permittedKwargs, typed_pos_args, typed_kwargs, KwargInfo
 )
+from ..interpreterbase.decorators import ContainerTypeInfo
 
 if T.TYPE_CHECKING:
     from . import ModuleState
@@ -48,20 +49,6 @@ mod_kwargs = {'node_api_options'}
 mod_kwargs.update(known_shmod_kwargs)
 mod_kwargs -= {'name_prefix', 'name_suffix'}
 
-_MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in {'name_prefix', 'name_suffix'}]
-
-# These are the defauls
-node_api_defaults: 'NodeAPIOptions' = {
-    'async_pool':               4,
-    'es6':                      True,
-    'stack':                    '2MB',
-    'swig':                     False,
-    'environments':             ['node', 'web', 'webview', 'worker'],
-    'exported_functions':       ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1'],
-    'exported_runtime_methods': ['emnapiInit']
-}
-_NODE_API_OPTS_KW = KwargInfo('node_api_options', dict, default=node_api_defaults)
-
 swig_cpp_defaults_shared = [
     '-Wno-deprecated-declarations',
     '-Wno-unused-function',
@@ -84,11 +71,28 @@ swig_cpp_defaults = {
     'emscripten': swig_cpp_defaults_clang
 }
 
+_MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in {'name_prefix', 'name_suffix', 'install_dir'}]
+
+# These are the defauls
+node_api_defaults: 'NodeAPIOptions' = {
+    'async_pool':               4,
+    'es6':                      True,
+    'stack':                    '2MB',
+    'swig':                     False,
+    'environments':             ['node', 'web', 'webview', 'worker'],
+    'exported_functions':       ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1'],
+    'exported_runtime_methods': ['emnapiInit']
+}
+_NODE_API_OPTS_KW = [
+    *_MOD_KWARGS,
+    KwargInfo('install_dir', ContainerTypeInfo(list, (str, bool)), default=[''], listify=True),
+    KwargInfo('node_api_options', dict, default=node_api_defaults)
+]
+
 if T.TYPE_CHECKING:
     class ExtensionModuleKw(SharedModuleKw):
         node_api_options: 'NodeAPIOptions'
         # These are missing from the base type
-        install_dir: str
         link_args: T.List[str]
 
 def tar_strip1(files: T.List[tarfile.TarInfo]) -> T.Generator[tarfile.TarInfo, None, None]:
@@ -275,14 +279,13 @@ class NapiModule(ExtensionModule):
 
     @permittedKwargs(mod_kwargs)
     @typed_pos_args('node-api.extension_module', str, varargs=(str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget))
-    # TODO: For some strange reason, install_dir requires allow_unknown=True
-    @typed_kwargs('node-api.extension_module', *_MOD_KWARGS, _NODE_API_OPTS_KW, allow_unknown=True)
+    @typed_kwargs('node-api.extension_module', *_NODE_API_OPTS_KW)
     def extension_module_method(self, state: 'ModuleState', args: T.Tuple[str, SourcesVarargsType], kwargs: ExtensionModuleKw) -> 'SharedModule':
         if 'include_directories' not in kwargs:
             kwargs['include_directories'] = []
         kwargs['name_prefix'] = name_prefix
         source_dir = self.source_root / state.subdir
-        kwargs.setdefault('install_dir', '')
+        kwargs.setdefault('install_dir', [''])
 
         cons_args = None
         opts = T.cast('NodeAPIOptions', {**node_api_defaults, **kwargs['node_api_options']})
@@ -298,7 +301,7 @@ class NapiModule(ExtensionModule):
             kwargs.setdefault('link_args', []).append(f'--js-library={js_lib}')
 
             inc_dirs = self.emnapi_include_dirs(source_dir)
-            kwargs['include_directories'] += [str(d) for d in inc_dirs]
+            kwargs['include_directories'] += [IncludeDirs(str(source_dir), [str(d) for d in inc_dirs], True)]
 
             sources = self.emnapi_sources(source_dir)
             args[1].extend([str(d) for d in sources])
@@ -320,15 +323,15 @@ class NapiModule(ExtensionModule):
         if 'cpp' in self.interpreter.environment.coredata.compilers.host:
             self.load_node_addon_api_package()
             inc_dir = self.node_addon_api_package['include'].strip('\"')
-            node_addon_api_dir = self.relativize(inc_dir, source_dir)
-            kwargs.setdefault('include_directories', []).extend([str(node_addon_api_dir)])
+            node_addon_api_dir = IncludeDirs(str(source_dir), [str(self.relativize(inc_dir, source_dir))], True)
+            kwargs.setdefault('include_directories', []).extend([node_addon_api_dir])
             # The default C++ standard when using node-addon-api should be C++20
             if 'cpp_std' not in kwargs.setdefault('override_options', {}):
                 kwargs['override_options']['cpp_std'] = 'c++20'
 
         if self.napi_includes:
-            napi_includes = self.relativize(self.napi_includes, source_dir)
-            kwargs.setdefault('include_directories', []).extend([str(napi_includes)])
+            napi_includes = IncludeDirs(str(source_dir), [str(self.relativize(self.napi_includes, source_dir))], True)
+            kwargs.setdefault('include_directories', []).extend([napi_includes])
 
         return self.interpreter.build_target(state.current_node, args, kwargs, SharedModule)
 
