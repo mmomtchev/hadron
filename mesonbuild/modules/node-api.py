@@ -75,6 +75,9 @@ swig_cpp_defaults = {
 node_api_overloaded_kws = {'install_dir', 'gnu_symbol_visibility'}
 _MOD_KWARGS = [k for k in SHARED_MOD_KWS if k.name not in (node_api_banned_kws | node_api_overloaded_kws)]
 
+emnapi_mandatory_c_exports = ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1']
+emnapi_mandatory_js_exports = ['emnapiInit']
+
 # These are the defauls
 node_api_defaults: 'NodeAPIOptions' = {
     'async_pool':               4,
@@ -82,8 +85,8 @@ node_api_defaults: 'NodeAPIOptions' = {
     'stack':                    '2MB',
     'swig':                     False,
     'environments':             ['node', 'web', 'webview', 'worker'],
-    'exported_functions':       ['_malloc', '_free', '_napi_register_wasm_v1', '_node_api_module_get_api_version_v1'],
-    'exported_runtime_methods': ['emnapiInit']
+    'exported_functions':       [],
+    'exported_runtime_methods': []
 }
 _NODE_API_OPTS_KW = [
     *_MOD_KWARGS,
@@ -311,6 +314,14 @@ class NapiModule(ExtensionModule):
 
             sources = self.emnapi_sources(source_dir)
             args[1].extend([str(d) for d in sources])
+
+            # emnapi mandatory exports
+            for f in emnapi_mandatory_c_exports:
+                if f not in opts['exported_functions']:
+                    opts['exported_functions'].append(f)
+            for f in emnapi_mandatory_js_exports:
+                if f not in opts['exported_runtime_methods']:
+                    opts['exported_runtime_methods'].append(f)
 
         else:
             # Node.js native mode
