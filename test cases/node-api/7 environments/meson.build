@@ -13,7 +13,7 @@ addon = napi.extension_module(
   install: true,
   node_api_options: {
     'environments': ['node'],
-    'exported_runtime_methods': ['emnapiInit', 'FS']
+    'exported_runtime_methods': ['FS']
     }
   )
 
