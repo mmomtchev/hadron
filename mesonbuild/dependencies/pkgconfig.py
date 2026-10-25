@@ -46,7 +46,6 @@ class PkgConfigInterface:
     def instance(env: Environment, for_machine: MachineChoice, silent: bool,
                  extra_paths: T.Optional[T.List[str]] = None) -> T.Optional[PkgConfigInterface]:
         '''Return a pkg-config implementation singleton'''
-        for_machine = for_machine if env.is_cross_build() else MachineChoice.HOST
         extra_paths_key = tuple(extra_paths) if extra_paths is not None else None
         impl = PkgConfigInterface.class_impl[for_machine].get(extra_paths_key, False)
         if impl is False:
@@ -66,7 +65,6 @@ class PkgConfigInterface:
         Even when we use another implementation internally, external tools might
         still need the CLI implementation.
         '''
-        for_machine = for_machine if env.is_cross_build() else MachineChoice.HOST
         impl: T.Union[Literal[False], T.Optional[PkgConfigInterface]] # Help confused mypy
         impl = PkgConfigInterface.instance(env, for_machine, silent)
         if impl and not isinstance(impl, PkgConfigCLI):
@@ -103,7 +101,7 @@ class PkgConfigInterface:
         '''Return module version or None if not found'''
         raise NotImplementedError
 
-    def cflags(self, name: str, allow_system: bool = False,
+    def cflags(self, name: str, static: bool = False, allow_system: bool = False,
                define_variable: PkgConfigDefineType = None) -> ImmutableListProtocol[str]:
         '''Return module cflags
            @allow_system: If False, remove default system include paths
@@ -157,7 +155,7 @@ class PkgConfigCLI(PkgConfigInterface):
         return ret
 
     @lru_cache(maxsize=None)
-    def cflags(self, name: str, allow_system: bool = False,
+    def cflags(self, name: str, static: bool = False, allow_system: bool = False,
                define_variable: PkgConfigDefineType = None) -> ImmutableListProtocol[str]:
         env = None
         if allow_system:
@@ -165,6 +163,8 @@ class PkgConfigCLI(PkgConfigInterface):
             env['PKG_CONFIG_ALLOW_SYSTEM_CFLAGS'] = '1'
         args: T.List[str] = []
         args += self._define_variable_args(define_variable)
+        if static:
+            args.append('--static')
         args += ['--cflags', name]
         ret, out, err = self._call_pkgbin(args, env=env)
         if ret != 0:
@@ -335,7 +335,7 @@ class PkgConfigDependency(ExternalDependency):
             # Fetch the libraries and library paths needed for using this
             self._set_libs()
         except DependencyException as e:
-            mlog.debug(f"Pkg-config error with '{name}': {e}")
+            mlog.warning(f"Pkg-config error with '{name}': {e}")
             if self.required:
                 raise
             else:
@@ -386,7 +386,7 @@ class PkgConfigDependency(ExternalDependency):
             # gfortran doesn't appear to look in system paths for INCLUDE files,
             # so don't allow pkg-config to suppress -I flags for system paths
             allow_system = True
-        cflags = self.pkgconfig.cflags(self.name, allow_system)
+        cflags = self.pkgconfig.cflags(self.name, self.static, allow_system)
         self.compile_args = self._convert_mingw_paths(cflags)
 
     def _search_libs(self, libs_in: ImmutableListProtocol[str], raw_libs_in: ImmutableListProtocol[str]) -> T.Tuple[T.List[str], T.List[str]]:
@@ -557,7 +557,7 @@ class PkgConfigDependency(ExternalDependency):
     def extract_field(self, la_file: str, fieldname: str) -> T.Optional[str]:
         with open(la_file, encoding='utf-8') as f:
             for line in f:
-                arr = line.strip().split('=')
+                arr = line.strip().split('=', 1)
                 if arr[0] == fieldname:
                     return arr[1][1:-1]
         return None

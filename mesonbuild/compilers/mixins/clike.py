@@ -48,6 +48,16 @@ GROUP_FLAGS = re.compile(r'''^(?!-Wl,) .*\.so (?:\.[0-9]+)? (?:\.[0-9]+)? (?:\.[
                              \.a$''', re.X)
 
 class CLikeCompilerArgs(arglist.CompilerArgs):
+    # Note: ``-isystem`` is deliberately absent from prepend_prefixes.
+    # Because ``-isystem`` is appended by __iadd__ rather than
+    # prepended, the reversed iteration in the ninja backend causes
+    # directories listed *last* in include_directories() to appear
+    # *first* on the command line (and thus be searched first).  This
+    # is the opposite convention from ``-I``, where first-listed means
+    # first-searched.  Existing projects (e.g. systemd) rely on this
+    # ``-isystem`` ordering, so adding ``-isystem`` to prepend_prefixes
+    # would silently break them by reversing their include priority.
+    # See NinjaBackend._generate_single_compile_target_args().
     prepend_prefixes = ('-I', '-L', '-isystem')
     dedup2_prefixes = ('-I', '-isystem', '-L', '-D', '-U')
 
@@ -174,7 +184,7 @@ class CLikeCompiler(Compiler):
         return ['-c']
 
     def get_no_optimization_args(self) -> T.List[str]:
-        return ['-O0']
+        return ['-O0', '-U_FORTIFY_SOURCE']
 
     def get_output_args(self, outputname: str) -> T.List[str]:
         return ['-o', outputname]
@@ -269,49 +279,14 @@ class CLikeCompiler(Compiler):
     def gen_import_library_args(self, implibname: str) -> T.List[str]:
         return self.linker.import_library_args(implibname)
 
-    def _sanity_check_impl(self, work_dir: str, sname: str, code: str) -> None:
-        mlog.debug('Sanity testing ' + self.get_display_language() + ' compiler:', mesonlib.join_args(self.exelist))
-        mlog.debug(f'Is cross compiler: {self.is_cross!s}.')
-
-        source_name = os.path.join(work_dir, sname)
-        binname = sname.rsplit('.', 1)[0]
-        mode = CompileCheckMode.LINK
-        if self.is_cross:
-            binname += '_cross'
-            if not self.environment.has_exe_wrapper():
-                # Linking cross built C/C++ apps is painful. You can't really
-                # tell if you should use -nostdlib or not and for example
-                # on OSX the compiler binary is the same but you need
-                # a ton of compiler flags to differentiate between
-                # arm and x86_64. So just compile.
-                mode = CompileCheckMode.COMPILE
-        cargs, largs = self._get_basic_compiler_args(mode)
-        extra_flags = cargs + self.linker_to_compiler_args(largs)
-
-        # Is a valid executable output for all toolchains and platforms
-        binname += '.exe'
-        # Write binary check source
-        binary_name = os.path.join(work_dir, binname)
-        with open(source_name, 'w', encoding='utf-8') as ofile:
-            ofile.write(code)
-        # Compile sanity check
-        # NOTE: extra_flags must be added at the end. On MSVC, it might contain a '/link' argument
-        # after which all further arguments will be passed directly to the linker
-        cmdlist = self.exelist + [sname] + self.get_output_args(binname) + extra_flags
-        pc, stdo, stde = mesonlib.Popen_safe(cmdlist, cwd=work_dir)
-        mlog.debug('Sanity check compiler command line:', mesonlib.join_args(cmdlist))
-        mlog.debug('Sanity check compile stdout:')
-        mlog.debug(stdo)
-        mlog.debug('-----\nSanity check compile stderr:')
-        mlog.debug(stde)
-        mlog.debug('-----')
-        if pc.returncode != 0:
-            raise mesonlib.EnvironmentException(f'Compiler {self.name_string()} cannot compile programs.')
-        self.run_sanity_check([binary_name], work_dir)
-
-    def sanity_check(self, work_dir: str) -> None:
-        code = 'int main(void) { int class=0; return class; }\n'
-        return self._sanity_check_impl(work_dir, 'sanitycheckc.c', code)
+    def _sanity_check_compile_args(self, sourcename: str, binname: str
+                                   ) -> T.Tuple[T.List[str], T.List[str]]:
+        # Cross-compiling is hard. For example, you might need -nostdlib, or to pass --target, etc.
+        mode = CompileCheckMode.COMPILE if self.is_cross and not self.environment.has_exe_wrapper() else CompileCheckMode.LINK
+        cargs, b_largs = self._get_basic_compiler_args(mode)
+        largs = self.linker_to_compiler_args(b_largs)
+        s_args, s_largs = super()._sanity_check_compile_args(sourcename, binname)
+        return s_args + cargs, s_largs + largs
 
     def check_header(self, hname: str, prefix: str, *,
                      extra_args: T.Union[None, T.List[str], T.Callable[['CompileCheckMode'], T.List[str]]] = None,
@@ -360,11 +335,9 @@ class CLikeCompiler(Compiler):
             # us in that case and will error out asking us to pick one.
             try:
                 crt_val = self.environment.coredata.optstore.get_value_for('b_vscrt')
-                buildtype = self.environment.coredata.optstore.get_value_for('buildtype')
                 assert isinstance(crt_val, str), 'for mypy'
-                assert isinstance(buildtype, str), 'for mypy'
-                cargs += self.get_crt_compile_args(crt_val, buildtype)
-                largs += self.get_crt_link_args(crt_val, buildtype)
+                cargs += self.get_crt_compile_args(crt_val)
+                largs += self.get_crt_link_args(crt_val)
             except (KeyError, AttributeError):
                 pass
 
@@ -382,7 +355,7 @@ class CLikeCompiler(Compiler):
         if mode is CompileCheckMode.LINK:
             ld_value = self.environment.lookup_binary_entry(self.for_machine, self.language + '_ld')
             if ld_value is not None:
-                largs += self.use_linker_args(ld_value[0], self.version)
+                cargs += self.use_linker_args(ld_value[0], self.version)
 
             # Add LDFLAGS from the env
             sys_ld_args = self.environment.coredata.get_external_link_args(self.for_machine, self.language)
@@ -418,7 +391,7 @@ class CLikeCompiler(Compiler):
             cargs += d.get_compile_args()
             system_incdir = d.get_include_type() == 'system'
             for i in d.get_include_dirs():
-                for idir in i.to_string_list(self.environment.get_source_dir(), self.environment.get_build_dir()):
+                for idir in i.abs_string_list(self.environment.get_source_dir(), self.environment.get_build_dir()):
                     cargs.extend(self.get_include_args(idir, system_incdir))
             if mode is CompileCheckMode.LINK:
                 # Add link flags needed to find dependencies
@@ -575,7 +548,12 @@ class CLikeCompiler(Compiler):
             return -1, False
         if res.returncode != 0:
             raise mesonlib.EnvironmentException('Could not run sizeof test binary.')
-        return int(res.stdout), res.cached
+        try:
+            return int(res.stdout), res.cached
+        except ValueError:
+            raise mesonlib.EnvironmentException(
+                f'Could not determine size of {typename}: compiler output was empty or invalid.'
+            )
 
     def _cross_alignment(self, typename: str, prefix: str, *,
                          extra_args: T.Optional[T.List[str]] = None,
@@ -668,7 +646,12 @@ class CLikeCompiler(Compiler):
             raise mesonlib.MesonBugException('Delimiters not found in preprocessor output.')
         define_value = p.stdout[star_idx + len(delim_start):end_idx]
 
-        if define_value == sentinel_undef:
+        # Due to https://developercommunity.visualstudio.com/t/Inconsistent-whitespace-with-standard-pr/11023343,
+        # MSVC can end up producing an unexpected space after the sentinel_undef
+        # string (if building with -std:c11, and if the test source is written
+        # with unix newlines). To avoid treating this as an actual predefined
+        # macro, look for the buggy value as well.
+        if define_value in {sentinel_undef, sentinel_undef + ' '}:
             define_value = None
         else:
             # Merge string literals
@@ -1272,11 +1255,11 @@ class CLikeCompiler(Compiler):
         # TODO: should probably check for macOS?
         return self._find_framework_impl(name, extra_dirs, allow_system)
 
-    def get_crt_compile_args(self, crt_val: str, buildtype: str) -> T.List[str]:
+    def get_crt_compile_args(self, crt_val: str) -> T.List[str]:
         # TODO: does this belong here or in GnuLike or maybe PosixLike?
         return []
 
-    def get_crt_link_args(self, crt_val: str, buildtype: str) -> T.List[str]:
+    def get_crt_link_args(self, crt_val: str) -> T.List[str]:
         # TODO: does this belong here or in GnuLike or maybe PosixLike?
         return []
 
@@ -1337,7 +1320,7 @@ class CLikeCompiler(Compiler):
         args = self.linker_to_compiler_args(args)
         return self.has_arguments(args, code, mode=CompileCheckMode.LINK)
 
-    def has_multi_link_arguments(self, args: T.List[str]) -> T.Tuple[bool, bool]:
+    def has_multi_link_arguments(self, args: T.List[str], to_host_args: bool = True) -> T.Tuple[bool, bool]:
         return self._has_multi_link_arguments(args, 'int main(void) { return 0; }\n')
 
     @staticmethod

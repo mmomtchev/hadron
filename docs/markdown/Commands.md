@@ -395,6 +395,10 @@ These variables are set in environment in addition to those set using [[meson.ad
   more than one directory.
 - `QEMU_LD_PREFIX` *Since 1.0.0* is set to the `sys_root` value from cross file
   when cross compiling and that property is defined.
+- `XDG_DATA_DIRS` *Since 1.11.0* if not set in user's environment, the default value
+  `/usr/local/share:/usr/share` is set before adding project paths.
+- `XDG_CONFIG_DIRS` *Since 1.11.0* if not set in user's environment, the default value
+  `/etc/xdg` is set before adding project paths.
 
 *Since 0.62.0* if bash-completion scripts are being installed and the
 shell is bash, they will be automatically sourced.
@@ -473,7 +477,10 @@ The following options are recognized:
 - tab_width (int): Width of tab stops, used to compute line length
     when `indent_by` uses tab characters (default is 4).
 - sort_files (bool): When true, arguments of `files()` function are
-    sorted alphabetically (default is true).
+    sorted (default was true before 1.11.0; *since 1.11.0* it is false).
+    *Since 1.11.0*, arguments are sorted
+    [naturally](Style-guide.md#sorting-source-paths) rather than
+    alphabetically.
 - group_arg_value (bool): When true, string argument with `--` prefix
     followed by string argument without `--` prefix are grouped on the
     same line, in multiline arguments (default is false).

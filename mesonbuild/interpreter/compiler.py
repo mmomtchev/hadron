@@ -12,7 +12,6 @@ import typing as T
 
 from .. import build
 from .. import dependencies
-from .. import options
 from .. import mesonlib
 from .. import mlog
 from ..compilers import SUFFIX_TO_LANG, RunResult
@@ -28,7 +27,7 @@ from .type_checking import INCLUDE_DIRECTORIES, REQUIRED_KW, in_set_validator, N
 if T.TYPE_CHECKING:
     from ..interpreter import Interpreter
     from ..compilers import Compiler
-    from ..interpreterbase import TYPE_var, TYPE_kwargs
+    from ..interpreterbase import Feature, TYPE_var, TYPE_kwargs
     from .kwargs import ExtractRequired, ExtractSearchDirs
     from .interpreter import SourceOutputs
     from ..mlog import TV_LoggableList
@@ -89,7 +88,7 @@ if T.TYPE_CHECKING:
         header_include_directories: T.List[T.Union[build.IncludeDirs, str]]
         header_no_builtin_args: bool
         header_prefix: str
-        header_required: T.Union[bool, options.UserFeatureOption]
+        header_required: T.Union[bool, Feature]
 
     class PreprocessKW(TypedDict):
         output: str
@@ -236,7 +235,7 @@ class CompilerHolder(ObjectHolder['Compiler']):
                         mode: CompileCheckMode = CompileCheckMode.LINK) -> T.List[str]:
         args: T.List[str] = []
         for i in self.interpreter.extract_incdirs(kwargs['include_directories']):
-            for idir in i.to_string_list(self.environment.get_source_dir(), self.environment.get_build_dir()):
+            for idir in i.abs_string_list(self.environment.get_source_dir(), self.environment.get_build_dir()):
                 args.extend(self.compiler.get_include_args(idir, False))
         if not kwargs['no_builtin_args']:
             args += self.compiler.get_option_compile_args(None, self.subproject)
@@ -666,7 +665,7 @@ class CompilerHolder(ObjectHolder['Compiler']):
     @typed_pos_args('compiler.find_library', str)
     @typed_kwargs(
         'compiler.find_library',
-        KwargInfo('required', (bool, options.UserFeatureOption), default=True),
+        REQUIRED_KW,
         KwargInfo('has_headers', ContainerTypeInfo(list, str), listify=True, default=[], since='0.50.0'),
         KwargInfo('static', (bool, NoneType), since='0.51.0'),
         KwargInfo('disabler', bool, default=False, since='0.49.0'),
@@ -740,8 +739,10 @@ class CompilerHolder(ObjectHolder['Compiler']):
             logargs += ['skipped: feature', mlog.bold(feature), 'disabled']
             mlog.log(*logargs)
             return False
-        test = self.compiler.has_multi_link_arguments if mode is _TestMode.LINKER else self.compiler.has_multi_arguments
-        result, cached = test(arguments)
+        if mode is _TestMode.LINKER:
+            result, cached = self.compiler.has_multi_link_arguments(arguments)
+        else:
+            result, cached = self.compiler.has_multi_arguments(arguments)
         if required and not result:
             logargs += ['not usable']
             raise InterpreterException(*logargs)
@@ -907,7 +908,6 @@ class CompilerHolder(ObjectHolder['Compiler']):
         tg = build.CompileTarget(
             tg_name,
             self.interpreter.subdir,
-            self.subproject,
             self.environment,
             sources,
             kwargs['output'],
@@ -916,6 +916,7 @@ class CompilerHolder(ObjectHolder['Compiler']):
             kwargs['compile_args'],
             self.interpreter.extract_incdirs(kwargs['include_directories']),
             kwargs['dependencies'],
+            self.interpreter.current_build_project(),
             kwargs['depends'])
         self.interpreter.add_target(tg.name, tg)
         # Expose this target as list of its outputs, so user can pass them to

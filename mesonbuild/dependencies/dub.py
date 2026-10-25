@@ -351,13 +351,15 @@ class DubDependency(ExternalDependency):
         ret, res, err = self._call_dubbin(describe_cmd)
         if ret == 0:
             return (json.loads(res), helper_build, source)
+        else:
+            mlog.debug('DUB describe (raw) failed: ' + err)
 
         pack_spec = self.name
         if self.version_reqs is not None:
             if len(self.version_reqs) > 1:
                 mlog.error('Multiple version requirements are not supported for raw dub dependencies.')
                 mlog.error("Please specify only an exact version like '1.2.3'")
-                raise DependencyException('Multiple version requirements are not solvable for raw dub depencies')
+                raise DependencyException('Multiple version requirements are not solvable for raw dub dependencies')
             elif len(self.version_reqs) == 1:
                 pack_spec += '@' + self.version_reqs[0]
 

@@ -13,17 +13,57 @@ import sys
 import re
 import typing as T
 from pathlib import Path
+from abc import abstractmethod
 
 from . import mesonlib
 from . import mlog
-from .mesonlib import MachineChoice, OrderedSet
+from .mesonlib import MachineChoice, OrderedSet, SimpleABC
 
 if T.TYPE_CHECKING:
+    from typing_extensions import TypeAlias
     from .environment import Environment
     from .interpreter import Interpreter
 
+    CommandListEntry: TypeAlias = T.Union[str, 'Program']
+    CommandList: TypeAlias = T.List[CommandListEntry]
 
-class ExternalProgram(mesonlib.HoldableObject):
+
+class Program(mesonlib.HoldableObject, metaclass=SimpleABC):
+    '''A base class for LocalProgram and ExternalProgram.'''
+
+    name: str
+    for_machine = MachineChoice.BUILD
+
+    @abstractmethod
+    def found(self) -> bool:
+        pass
+
+    @abstractmethod
+    def get_version(self, interpreter: T.Optional[Interpreter] = None) -> str:
+        pass
+
+    @abstractmethod
+    def get_command(self) -> T.List[str]:
+        pass
+
+    @abstractmethod
+    def get_path(self) -> T.Optional[str]:
+        pass
+
+    @abstractmethod
+    def get_name(self) -> T.Optional[str]:
+        pass
+
+    @abstractmethod
+    def runnable(self) -> bool:
+        pass
+
+    @abstractmethod
+    def description(self) -> str:
+        '''Human friendly description of the command'''
+
+
+class ExternalProgram(Program):
 
     """A program that is found on the system.
     :param name: The name of the program
@@ -34,7 +74,7 @@ class ExternalProgram(mesonlib.HoldableObject):
     :param exclude_paths: A list of directories to exclude when searching in PATH"""
 
     windows_exts = ('exe', 'msc', 'com', 'bat', 'cmd')
-    for_machine = MachineChoice.BUILD
+    command: list[str]
 
     def __init__(self, name: str, command: T.Optional[T.List[str]] = None,
                  silent: bool = False, search_dirs: T.Optional[T.List[T.Optional[str]]] = None,
@@ -44,7 +84,7 @@ class ExternalProgram(mesonlib.HoldableObject):
         self.cached_version: T.Optional[str] = None
         self.version_arg = '--version'
         if command is not None:
-            self.command = mesonlib.listify(command)
+            self.command = command.copy()
             if mesonlib.is_windows():
                 cmd = self.command[0]
                 args = self.command[1:]
@@ -91,7 +131,7 @@ class ExternalProgram(mesonlib.HoldableObject):
             else:
                 mlog.log('Program', mlog.bold(name), 'found:', mlog.red('NO'))
 
-    def summary_value(self) -> T.Union[str, mlog.AnsiDecorator]:
+    def summary_value(self) -> T.Union[str, mlog.AnsiDecorator, None]:
         if not self.found():
             return mlog.red('NO')
         return self.path
@@ -110,6 +150,7 @@ class ExternalProgram(mesonlib.HoldableObject):
             if interpreter:
                 res = interpreter.run_command_impl((self, [self.version_arg]),
                                                    {'capture': True,
+                                                    'console': False,
                                                     'check': True,
                                                     'env': mesonlib.EnvironmentVariables()},
                                                    True)
@@ -133,10 +174,10 @@ class ExternalProgram(mesonlib.HoldableObject):
 
     @classmethod
     def from_bin_list(cls, env: 'Environment', for_machine: MachineChoice, name: str) -> 'ExternalProgram':
-        # There is a static `for_machine` for this class because the binary
-        # always runs on the build platform. (Its host platform is our build
-        # platform.) But some external programs have a target platform, so this
-        # is what we are specifying here.
+        # This is not the static `for_machine` in this class, which represents
+        # that the binary always runs on the build platform. (Its host platform
+        # is our build platform.) Some external programs have a target platform,
+        # and that is what we are specifying here.
         command = env.lookup_binary_entry(for_machine, name)
         if command is None:
             return NonExistingExternalProgram()
@@ -182,7 +223,7 @@ class ExternalProgram(mesonlib.HoldableObject):
         return ExternalProgram(command, silent=True)
 
     @staticmethod
-    def _shebang_to_cmd(script: str) -> T.Optional[T.List[str]]:
+    def _shebang_to_cmd(script: str) -> list[str]:
         """
         Check if the file has a shebang and manually parse it to figure out
         the interpreter to use. This is useful if the script is not executable
@@ -226,7 +267,7 @@ class ExternalProgram(mesonlib.HoldableObject):
         except Exception as e:
             mlog.debug(str(e))
         mlog.debug(f'Unusable script {script!r}')
-        return None
+        return []
 
     def _is_executable(self, path: str) -> bool:
         suffix = os.path.splitext(path)[-1].lower()[1:]
@@ -238,9 +279,9 @@ class ExternalProgram(mesonlib.HoldableObject):
             return not os.path.isdir(path)
         return False
 
-    def _search_dir(self, name: str, search_dir: T.Optional[str]) -> T.Optional[list]:
+    def _search_dir(self, name: str, search_dir: T.Optional[str]) -> list[str]:
         if search_dir is None:
-            return None
+            return []
         trial = os.path.join(search_dir, name)
         if os.path.exists(trial):
             if self._is_executable(trial):
@@ -255,9 +296,9 @@ class ExternalProgram(mesonlib.HoldableObject):
                     trial_ext = f'{trial}.{ext}'
                     if os.path.exists(trial_ext):
                         return [trial_ext]
-        return None
+        return []
 
-    def _search_windows_special_cases(self, name: str, command: T.Optional[str], exclude_paths: T.Optional[T.List[str]]) -> T.List[T.Optional[str]]:
+    def _search_windows_special_cases(self, name: str, command: T.Optional[str], exclude_paths: T.Optional[T.List[str]]) -> list[str]:
         '''
         Lots of weird Windows quirks:
         1. PATH search for @name returns files with extensions from PATHEXT,
@@ -273,15 +314,21 @@ class ExternalProgram(mesonlib.HoldableObject):
             # sure that it can be run directly if it's not a native executable.
             # For instance, interpreted scripts sometimes need to be run explicitly
             # with an interpreter if the file association is not done properly.
-            name_ext = os.path.splitext(command)[1]
-            if name_ext[1:].lower() in self.windows_exts:
+
+            # Lower case the command extension, as clangd requires lower case
+            # "exe" to unwrap compiler wrappers in CDB, e.g. "ccache.exe cl ..."
+            prefix, ext = os.path.splitext(command)
+            ext = ext.lower()
+            command = prefix + ext
+
+            if ext[1:] in self.windows_exts:
                 # Good, it can be directly executed
                 return [command]
             # Try to extract the interpreter from the shebang
             commands = self._shebang_to_cmd(command)
             if commands:
                 return commands
-            return [None]
+            return []
         # Maybe the name is an absolute path to a native Windows
         # executable, but without the extension. This is technically wrong,
         # but many people do it because it works in the MinGW shell.
@@ -300,9 +347,9 @@ class ExternalProgram(mesonlib.HoldableObject):
             commands = self._search_dir(name, search_dir)
             if commands:
                 return commands
-        return [None]
+        return []
 
-    def _search(self, name: str, search_dirs: T.List[T.Optional[str]], exclude_paths: T.Optional[T.List[str]]) -> T.List[T.Optional[str]]:
+    def _search(self, name: str, search_dirs: T.List[T.Optional[str]], exclude_paths: T.Optional[T.List[str]]) -> list[str]:
         '''
         Search in the specified dirs for the specified executable by name
         and if not found search in PATH
@@ -313,7 +360,7 @@ class ExternalProgram(mesonlib.HoldableObject):
                 return commands
         # If there is a directory component, do not look in PATH
         if os.path.dirname(name) and not os.path.isabs(name):
-            return [None]
+            return []
         # Do a standard search in PATH
         path = os.environ.get('PATH', os.defpath)
         if mesonlib.is_windows() and path:
@@ -331,10 +378,13 @@ class ExternalProgram(mesonlib.HoldableObject):
             return self._search_windows_special_cases(name, command, exclude_paths)
         # On UNIX-like platforms, shutil.which() is enough to find
         # all executables whether in PATH or with an absolute path
-        return [command]
+        return [command] if command is not None else []
+
+    def runnable(self) -> bool:
+        return self.found()
 
     def found(self) -> bool:
-        return self.command[0] is not None
+        return bool(self.command)
 
     def get_command(self) -> T.List[str]:
         return self.command[:]
@@ -351,7 +401,7 @@ class NonExistingExternalProgram(ExternalProgram):  # lgtm [py/missing-call-to-i
 
     def __init__(self, name: str = 'nonexistingprogram') -> None:
         self.name = name
-        self.command = [None]
+        self.command = []
         self.path = None
 
     def __repr__(self) -> str:
@@ -361,17 +411,6 @@ class NonExistingExternalProgram(ExternalProgram):  # lgtm [py/missing-call-to-i
     def found(self) -> bool:
         return False
 
-
-class OverrideProgram(ExternalProgram):
-
-    """A script overriding a program."""
-
-    def __init__(self, name: str, version: str, command: T.Optional[T.List[str]] = None,
-                 silent: bool = False, search_dirs: T.Optional[T.List[T.Optional[str]]] = None,
-                 exclude_paths: T.Optional[T.List[str]] = None):
-        super().__init__(name, command=command, silent=silent,
-                         search_dirs=search_dirs, exclude_paths=exclude_paths)
-        self.cached_version = version
 
 def find_external_program(env: 'Environment', for_machine: MachineChoice, name: str,
                           display_name: str, default_names: T.List[str],

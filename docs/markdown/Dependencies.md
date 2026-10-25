@@ -685,8 +685,8 @@ Meson uses pkg-config to find NetCDF.
 *(added 1.4.0)*
 
 `method` may be `auto`, `pkg-config`, or `config-tool`.
-`dependency('numpy')` supports regular use of the NumPy C API.
-Use of `numpy.f2py` for binding Fortran code isn't yet supported.
+`dependency('numpy')` supports regular use of the NumPy C API, for
+`numpy>=2.0`. Use of `numpy.f2py` for binding Fortran code isn't yet supported.
 
 ## ObjFW
 
@@ -761,49 +761,40 @@ but dependency tries `pkg-config` first.
 
 ## Qt
 
-Meson has native Qt support. Its usage is best demonstrated with an
-example.
+Meson has native support for Qt
 
 ```meson
-qt5_mod = import('qt5')
-qt5widgets = dependency('qt5', modules : 'Widgets')
-
-processed = qt5_mod.preprocess(
-  moc_headers : 'mainWindow.h',   # Only headers that need moc should be put here
-  moc_sources : 'helperFile.cpp', # must have #include"moc_helperFile.cpp"
-  ui_files    : 'mainWindow.ui',
-  qresources  : 'resources.qrc',
-)
-
-q5exe = executable('qt5test',
-  sources     : ['main.cpp',
-                 'mainWindow.cpp',
-                 processed],
-  dependencies: qt5widgets)
+qt6_dep = dependency('qt6', modules : ['Core', 'Gui', 'Widgets'])
 ```
 
-Here we have an UI file created with Qt Designer and one source and
-header file each that require preprocessing with the `moc` tool. We
-also define a resource file to be compiled with `rcc`. We just have to
-tell Meson which files are which and it will take care of invoking all
-the necessary tools in the correct order, which is done with the
-`preprocess` method of the `qt5` module. Its output is simply put in
-the list of sources for the target. The `modules` keyword of
-`dependency` works just like it does with Boost. It tells which
-subparts of Qt the program uses.
+An optional `method` keyword argument can be set: `auto` (default), `pkg-config`, `config-tool` or `qmake` (*deprecated
+since 0.58.0*; use `config-tool` instead).
 
-You can set the `main` keyword argument to `true` to use the
-`WinMain()` function provided by qtmain static library (this argument
-does nothing on platforms other than Windows).
+An optional `main` boolean keyword argument can be set to `true` to add a link
+dependency on `Qt6EntryPoint` on Windows, which is in most cases necessary to
+be able to compile `win_subsystem: 'windows'` executables.
 
-Setting the optional `private_headers` keyword to true adds the
-private header include path of the given module(s) to the compiler
-flags. (since v0.47.0)
+The `modules` keyword receives an array of Qt module names that will be required
+and linked against.
 
-**Note** using private headers in your project is a bad idea, do so at
-your own risk.
+Obtaining the list of possible is not straightforward, here is a
+non exhaustive list of possible Qt6 modules:
 
-`method` may be `auto`, `pkg-config` or `qmake`.
+* `Core`
+* `Gui`
+* `Widgets`
+* `Network`
+* `Svg`
+* `Quick`
+* `Qml`
+* `QuickWidgets`
+* `QmlIntegration`
+
+**Notes:**
+
+* In Qt's documentation, the module names are referenced with and extra `Qt` prefix,
+e.g. `QtCore` or `QtQmlIntegration`.
+* For more information on how to build a Qt application with meson, see the [Qt6 module](Qt6-module.md)
 
 ## SDL2
 
@@ -881,7 +872,7 @@ $ wx-config --libs std stc
 ## Zlib
 
 Zlib ships with pkg-config and cmake support, but on some operating
-systems (windows, macOs, FreeBSD, dragonflybsd, android), it is provided as
+systems (Windows, macOS, FreeBSD, DragonFly BSD, Android), it is provided as
 part of the base operating system without pkg-config support. The new
 System finder can be used on these OSes to link with the bundled
 version.

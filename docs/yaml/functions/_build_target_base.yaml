@@ -43,15 +43,9 @@ kwargs:
     description: precompiled header file to use for the given language
 
   <lang>_args:
-    type: array[str]
-    description: |
-      compiler flags to use for the given language;
-      eg: `cpp_args` for C++
-
-  vala_args:
     type: array[str | file]
     description: |
-      Compiler flags for Vala. Unlike other languages this may contain Files
+      compiler flags to use for the given language; eg: `cpp_args` for C++
 
   sources:
     type: str | file | custom_tgt | custom_idx | generated_list | structured_src
@@ -104,6 +98,15 @@ kwargs:
     description: |
       Flags to use during linking. You can use UNIX-style
       flags here for all platforms.
+
+  link_early_args:
+    type: array[str]
+    description: |
+      Flags to use during linking. These are just like link_args,
+      except that they are inserted into the linker command line
+      before any object files or libraries. You can use UNIX-style
+      flags here for all platforms. This is only supported when using
+      the Ninja backend.
 
   link_depends:
     type: str | file | custom_tgt | custom_idx
@@ -160,25 +163,31 @@ kwargs:
   include_directories:
     type: array[inc | str]
     description: |
-      one or more objects created with the [[include_directories]] function,
-      or *(since 0.50.0)* strings, which will be transparently expanded to include directory objects
+      one or more objects created with the [[include_directories]] function, or
+      *(since 0.50.0)* strings, which will be implicitly convert to [[@inc]]
+      objects
 
   install:
     type: bool
     default: false
-    description: When set to true, this executable should be installed.
+    description: When set to true, all outputs of this build_target will be installed.
 
   install_dir:
     type: array[str | bool]
     description: |
-      override install directory for this file. If the value is a relative path,
-      it will be considered relative the `prefix` option.
+      override install directory for outputs of this build target. If the value is a
+      relative path, it will be considered relative the `prefix` option.
       For example, if you want to install plugins into a subdir, you'd use
       something like this: `install_dir : get_option('libdir') / 'projectname-1.0'`.
 
       This can be set to an array of values to control the the installation path
       of build targets with multiple outputs. Currently, that means Vala. Setting
       them to `true` means "use the default", and `false` means, don't install.
+      By default the first element is true, and all other elements are false.
+
+      *Since 1.11.0* Passing an array is deprecated, and install_vala_header,
+      install_vala_vapi, and install_vala_gir keyword arguments should be used
+      instead.
 
   install_mode:
     type: array[str | int]
@@ -214,7 +223,7 @@ kwargs:
       object files had to be placed in `sources`.
 
   name_prefix:
-    type: str | array[void]
+    type: str
     description: |
       The string that will be used as the prefix for the
       target output filename by overriding the default (only used for
@@ -222,10 +231,11 @@ kwargs:
       except for MSVC shared libraries where it is omitted to follow
       convention, and Cygwin shared libraries where it is `cyg`.
 
-      Set this to `[]`, or omit the keyword argument for the default behaviour.
+      To conditionally keep the default behavior use a [[default]] object.
+      For Meson < 1.12, use `[]`.
 
   name_suffix:
-    type: str | array[void]
+    type: str
     description: |
       The string that will be used as the extension for the
       target by overriding the default. By default on Windows this is
@@ -238,7 +248,8 @@ kwargs:
       potential name clash with shared libraries which also generate
       import libraries with a `lib` suffix.
 
-      Set this to `[]`, or omit the keyword argument for the default behaviour.
+      To conditionally keep the default behavior use a [[default]] object.
+      For Meson < 1.12, use `[]`.
 
   override_options:
     type: array[str] | dict[str | bool | int | array[str]]
@@ -268,7 +279,8 @@ kwargs:
     since: 0.62.0
     description: |
       the directories to add to the string search path (i.e. `-J` switch for DMD).
-      Must be [[@inc]] objects or plain strings.
+      Must be objects created with the [[include_directories]] function or plain
+      strings, which will be implicitly converted into [[@inc]] objects.
 
   d_unittest:
     type: bool
@@ -378,3 +390,36 @@ kwargs:
       is not allowed to match a file or directory in the source
       directory, nor contain '..' to refer to the parent of the build
       directory.
+
+  install_vala_header:
+    type: str | bool
+    since: 1.11.0
+    description: |
+      If set to a string value, the vala generated header will be installed to
+      that path, if set to `true`, the default include path will be used, if
+      `false` the header will not be installed.
+
+      The default value is `false`.
+
+  install_vala_vapi:
+    type: str | bool
+    since: 1.11.0
+    description: |
+      If set to a string value, the vala generated vapi library will be
+      installed to that path, if set to `true`, the default vapi path will be
+      used, if `false` the vapi library will not be installed.
+
+      The default value is `false`.
+
+  install_vala_gir:
+    type: str | bool
+    since: 1.11.0
+    description: |
+      If set to a string value, the vala generated gir library will be
+      installed to that path, if set to `true`, the default gir path will be
+      used, if `false` the gir library will not be installed.
+
+      It is an error for this to be either `true` or a string and `vala_gir` to
+      be unset.
+
+      The default value is `false`.

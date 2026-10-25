@@ -5,7 +5,6 @@
 from __future__ import annotations
 from collections import OrderedDict
 from itertools import chain
-import argparse
 import copy
 import dataclasses
 import itertools
@@ -34,10 +33,11 @@ from .mesonlib import (
 from . import mlog
 
 if T.TYPE_CHECKING:
-    from typing_extensions import Literal, Final, TypeAlias, TypedDict
+    from typing_extensions import Literal, Final, TypeAlias
 
     from .envconfig import MachineInfo
-    from .interpreterbase import SubProject
+    from .mesonlib import SubProject
+    from .compilers.compilers import Language
 
     DeprecatedType: TypeAlias = T.Union[bool, str, T.Dict[str, str], T.List[str]]
     AnyOptionType: TypeAlias = T.Union[
@@ -48,13 +48,6 @@ if T.TYPE_CHECKING:
     MutableKeyedOptionDictType: TypeAlias = T.Dict['OptionKey', AnyOptionType]
 
     _OptionKeyTuple: TypeAlias = T.Tuple[T.Optional[str], MachineChoice, str]
-
-    class ArgparseKWs(TypedDict, total=False):
-
-        action: str
-        dest: str
-        default: str
-        choices: T.List
 
 DEFAULT_YIELDING = False
 
@@ -554,15 +547,6 @@ class UserFeatureOption(UserComboOption):
         # Ensure we get a copy with the lambda
         default_factory=lambda: ['enabled', 'disabled', 'auto'], init=False)
 
-    def is_enabled(self) -> bool:
-        return self.value == 'enabled'
-
-    def is_disabled(self) -> bool:
-        return self.value == 'disabled'
-
-    def is_auto(self) -> bool:
-        return self.value == 'auto'
-
 
 _U = T.TypeVar('_U', bound=UserOption)
 
@@ -664,28 +648,6 @@ def argparse_prefixed_default(opt: AnyOptionType, name: OptionKey, prefix: str =
         return BUILTIN_DIR_NOPREFIX_OPTIONS[name][prefix]
     except KeyError:
         return T.cast('ElementaryOptionValues', opt.default)
-
-
-def option_to_argparse(option: AnyOptionType, name: OptionKey, parser: argparse.ArgumentParser, help_suffix: str) -> None:
-    kwargs: ArgparseKWs = {}
-
-    if isinstance(option, (EnumeratedUserOption, UserArrayOption)):
-        c = option.choices
-    else:
-        c = None
-    b = 'store_true' if isinstance(option.default, bool) else None
-    h = option.description
-    if not b:
-        h = '{} (default: {}).'.format(h.rstrip('.'), argparse_prefixed_default(option, name))
-    else:
-        kwargs['action'] = b
-    if c and not b:
-        kwargs['choices'] = c
-    kwargs['default'] = argparse.SUPPRESS
-    kwargs['dest'] = str(name)
-
-    cmdline_name = argparse_name_to_arg(str(name))
-    parser.add_argument(cmdline_name, help=h + help_suffix, **kwargs)
 
 
 # Update `docs/markdown/Builtin-options.md` after changing the options below
@@ -888,7 +850,6 @@ class OptionStore:
         return potential
 
     def get_option_and_value_for(self, key: OptionKey) -> T.Tuple[AnyOptionType, ElementaryOptionValues]:
-        assert isinstance(key, OptionKey)
         key = self.ensure_and_validate_key(key)
         option_object = self.resolve_option(key)
         computed_value = option_object.value
@@ -934,7 +895,7 @@ class OptionStore:
         if pval is not None:
             self.set_option(key, pval)
 
-    def add_compiler_option(self, language: str, key: T.Union[OptionKey, str], valobj: AnyOptionType) -> None:
+    def add_compiler_option(self, language: Language, key: T.Union[OptionKey, str], valobj: AnyOptionType) -> None:
         key = self.ensure_and_validate_key(key)
         if not key.name.startswith(language + '_'):
             raise MesonException(f'Internal error: all compiler option names must start with language prefix. ({key.name} vs {language}_)')
@@ -1269,9 +1230,9 @@ class OptionStore:
     def is_module_option(self, key: OptionKey) -> bool:
         return key in self.module_options
 
-    def prefix_split_options(self, coll: OptionDict) -> T.Tuple[T.Optional[str], OptionDict]:
+    def prefix_split_options(self, coll: dict[OptionKey, _T]) -> T.Tuple[str | None, dict[OptionKey, _T]]:
         prefix = None
-        others_d: OptionDict = {}
+        others_d: dict[OptionKey, _T] = {}
         for k, v in coll.items():
             if k.name == 'prefix':
                 if not isinstance(v, str):
@@ -1283,9 +1244,9 @@ class OptionStore:
 
     def first_handle_prefix(self,
                             project_default_options: OptionDict,
-                            cmd_line_options: OptionDict,
+                            cmd_line_options: dict[OptionKey, str | None],
                             machine_file_options: OptionDict) \
-            -> T.Tuple[OptionDict, OptionDict, OptionDict]:
+            -> T.Tuple[OptionDict, dict[OptionKey, str | None], OptionDict]:
         # Copy to avoid later mutation
         nopref_machine_file_options = copy.copy(machine_file_options)
 
@@ -1319,7 +1280,7 @@ class OptionStore:
 
     def initialize_from_top_level_project_call(self,
                                                project_default_options_in: OptionDict,
-                                               cmd_line_options_in: OptionDict,
+                                               cmd_line_options_in: dict[OptionKey, str | None],
                                                machine_file_options_in: OptionDict) -> None:
         (project_default_options, cmd_line_options, machine_file_options) = self.first_handle_prefix(project_default_options_in,
                                                                                                      cmd_line_options_in,
@@ -1363,7 +1324,7 @@ class OptionStore:
                                         subproject: str,
                                         spcall_default_options: OptionDict,
                                         project_default_options: OptionDict,
-                                        cmd_line_options: OptionDict,
+                                        cmd_line_options: dict[OptionKey, str | None],
                                         machine_file_options: OptionDict) -> None:
 
         options: OptionDict = {}

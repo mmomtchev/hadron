@@ -22,7 +22,7 @@ from .. import mlog
 from .. import mesonlib
 
 if T.TYPE_CHECKING:
-    from ..compilers import Compiler
+    from ..compilers.compilers import Compiler
     from ..envconfig import MachineInfo
     from ..environment import Environment
     from ..dependencies import MissingCompiler
@@ -167,8 +167,11 @@ class _QtBase:
     def log_details(self) -> str:
         return f'modules: {", ".join(sorted(self.requested_modules))}'
 
+    def _get_common_defines(self) -> T.List[str]:
+        is_debug = self.env.coredata.optstore.get_value_for('debug')
+        return ['-DQT_DEBUG' if is_debug else '-DQT_NO_DEBUG']
 
-class QtPkgConfigDependency(_QtBase, PkgConfigDependency, metaclass=abc.ABCMeta):
+class QtPkgConfigDependency(_QtBase, PkgConfigDependency, metaclass=mesonlib.SimpleABC):
 
     """Specialization of the PkgConfigDependency for Qt."""
 
@@ -193,12 +196,23 @@ class QtPkgConfigDependency(_QtBase, PkgConfigDependency, metaclass=abc.ABCMeta)
                 qt_inc_dir = mod.get_variable(pkgconfig='includedir')
                 mod_private_dir = os.path.join(qt_inc_dir, 'Qt' + m)
                 if not os.path.isdir(mod_private_dir):
-                    # At least some versions of homebrew don't seem to set this
-                    # up correctly. /usr/local/opt/qt/include/Qt + m_name is a
-                    # symlink to /usr/local/opt/qt/include, but the pkg-config
-                    # file points to /usr/local/Cellar/qt/x.y.z/Headers/, and
-                    # the Qt + m_name there is not a symlink, it's a file
-                    mod_private_dir = qt_inc_dir
+                    if self.env.machines[self.for_machine].is_darwin():
+                        # On macOS Qt is conventionally shipped as a framework
+                        # (e.g. Homebrew's qt@6). pkg-config 'includedir' is
+                        # just the prefix include dir and contains no Qt
+                        # headers; both public and private headers live under
+                        # <libdir>/Qt<Module>.framework/Headers.
+                        libdir = mod.get_variable(pkgconfig='libdir', default_value='')
+                        framework_inc = os.path.join(libdir, f'Qt{m}.framework', 'Headers')
+                        if libdir and os.path.isdir(framework_inc):
+                            mod_private_dir = framework_inc
+                    if not os.path.isdir(mod_private_dir):
+                        # At least some versions of homebrew don't seem to set this
+                        # up correctly. /usr/local/opt/qt/include/Qt + m_name is a
+                        # symlink to /usr/local/opt/qt/include, but the pkg-config
+                        # file points to /usr/local/Cellar/qt/x.y.z/Headers/, and
+                        # the Qt + m_name there is not a symlink, it's a file
+                        mod_private_dir = qt_inc_dir
                 mod_private_inc = _qt_get_private_includes(mod_private_dir, m, mod.version)
                 for directory in mod_private_inc:
                     mod.compile_args.append('-I' + directory)
@@ -226,6 +240,8 @@ class QtPkgConfigDependency(_QtBase, PkgConfigDependency, metaclass=abc.ABCMeta)
 
         self.libexecdir = self.get_pkgconfig_host_libexecs(self)
 
+        self.compile_args += self._get_common_defines()
+
     @staticmethod
     @abc.abstractmethod
     def get_pkgconfig_host_bins(core: PkgConfigDependency) -> T.Optional[str]:
@@ -244,7 +260,7 @@ class QtPkgConfigDependency(_QtBase, PkgConfigDependency, metaclass=abc.ABCMeta)
         return 'pkg-config'
 
 
-class QmakeQtDependency(_QtBase, ConfigToolDependency, metaclass=abc.ABCMeta):
+class QmakeQtDependency(_QtBase, ConfigToolDependency, metaclass=mesonlib.SimpleABC):
 
     """Find Qt using Qmake as a config-tool."""
 
@@ -268,6 +284,8 @@ class QmakeQtDependency(_QtBase, ConfigToolDependency, metaclass=abc.ABCMeta):
         ConfigToolDependency.__init__(self, name, env, kwargs)
         if not self.found():
             return
+
+        self.compile_args += self._get_common_defines()
 
         # Query library path, header path, and binary path
         stdo = self.get_config_value(['-query'], 'args')

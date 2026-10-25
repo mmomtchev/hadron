@@ -13,11 +13,11 @@ from . import ExtensionModule, ModuleInfo
 from .. import mesonlib
 from .. import mlog
 from ..options import OptionKey
-from ..build import IncludeDirs, known_shmod_kwargs, CustomTarget, CustomTargetIndex, BuildTarget, GeneratedList, StructuredSources, ExtractedObjects, SharedModule
+from ..build import IncludeDirs, CustomTarget, CustomTargetIndex, BuildTarget, GeneratedList, StructuredSources, ExtractedObjects, SharedModule
 from ..programs import ExternalProgram
 from ..interpreter.type_checking import SHARED_MOD_KWS, TEST_KWS, in_set_validator
 from ..interpreterbase import (
-    permittedKwargs, typed_pos_args, typed_kwargs, KwargInfo
+    typed_pos_args, typed_kwargs, KwargInfo
 )
 from ..interpreterbase.decorators import ContainerTypeInfo
 
@@ -46,9 +46,6 @@ name_suffix_wasm_es6 = 'mjs'
 name_suffix_wasm_cjs = 'js'
 
 node_api_banned_kws = {'name_prefix', 'name_suffix'}
-mod_kwargs = {'node_api_options'}
-mod_kwargs.update(known_shmod_kwargs)
-mod_kwargs -= node_api_banned_kws
 
 swig_cpp_defaults_shared = [
     '-Wno-deprecated-declarations',
@@ -101,12 +98,10 @@ _NODE_API_OPTS_KW = [
 if T.TYPE_CHECKING:
     class ExtensionModuleKw(SharedModuleKw):
         node_api_options: 'NodeAPIOptions'
-        # These are missing from the base type
-        link_args: T.List[str]
 
 def tar_strip1(files: T.List[tarfile.TarInfo]) -> T.Generator[tarfile.TarInfo, None, None]:
     for member in files:
-        member.path = str(Path(*Path(member.path).parts[1:]))
+        member.name = str(Path(*Path(member.path).parts[1:]))
         yield member
 
 class NapiModule(ExtensionModule):
@@ -286,7 +281,6 @@ class NapiModule(ExtensionModule):
         js_lib: str = self.emnapi_package['js_library']
         return Path(js_lib)
 
-    @permittedKwargs(mod_kwargs)
     @typed_pos_args('node-api.extension_module', str, varargs=(str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget))
     @typed_kwargs('node-api.extension_module', *_NODE_API_OPTS_KW)
     def extension_module_method(self, state: 'ModuleState', args: T.Tuple[str, SourcesVarargsType], kwargs: ExtensionModuleKw) -> 'SharedModule':
@@ -310,7 +304,7 @@ class NapiModule(ExtensionModule):
             kwargs.setdefault('link_args', []).append(f'--js-library={js_lib}')
 
             inc_dirs = self.emnapi_include_dirs(source_dir)
-            kwargs['include_directories'] += [IncludeDirs(str(source_dir), [str(d) for d in inc_dirs], True)]
+            kwargs['include_directories'] += [IncludeDirs(str(source_dir), [str(d) for d in inc_dirs], True, state.current_build_project)]
 
             sources = self.emnapi_sources(source_dir)
             args[1].extend([str(d) for d in sources])
@@ -340,14 +334,14 @@ class NapiModule(ExtensionModule):
         if 'cpp' in self.interpreter.environment.coredata.compilers.host:
             self.load_node_addon_api_package()
             inc_dir = self.node_addon_api_package['include'].strip('\"')
-            node_addon_api_dir = IncludeDirs(str(source_dir), [str(self.relativize(inc_dir, source_dir))], True)
+            node_addon_api_dir = IncludeDirs(str(source_dir), [str(self.relativize(inc_dir, source_dir))], True, state.current_build_project)
             kwargs.setdefault('include_directories', []).extend([node_addon_api_dir])
             # The default C++ standard when using node-addon-api should be C++20
             if 'cpp_std' not in kwargs.setdefault('override_options', {}):
                 kwargs['override_options']['cpp_std'] = 'c++20'
 
         if self.napi_includes:
-            napi_includes = IncludeDirs(str(source_dir), [str(self.relativize(self.napi_includes, source_dir))], True)
+            napi_includes = IncludeDirs(str(source_dir), [str(self.relativize(self.napi_includes, source_dir))], True, state.current_build_project)
             kwargs.setdefault('include_directories', []).extend([napi_includes])
 
         return self.interpreter.build_target(state.current_node, args, kwargs, SharedModule)
@@ -390,7 +384,7 @@ class NapiModule(ExtensionModule):
 
         kwargs.setdefault('args', []).insert(0, node_script)
 
-        self.interpreter.add_test(state.current_node, (test_name, ExternalProgram('node')), T.cast('T.Dict[str, Any]', kwargs), True)
+        self.interpreter.add_test(state.current_node, (test_name, ExternalProgram('node')), kwargs, True)
 
 def initialize(interpreter: 'Interpreter') -> NapiModule:
     mod = NapiModule(interpreter)
