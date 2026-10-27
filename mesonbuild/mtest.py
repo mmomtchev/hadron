@@ -90,6 +90,9 @@ def is_windows() -> bool:
 def is_cygwin() -> bool:
     return sys.platform == 'cygwin'
 
+def is_os2() -> bool:
+    return platform.system().lower() == 'os/2'
+
 UNIWIDTH_MAPPING = {'F': 2, 'H': 1, 'W': 2, 'Na': 1, 'N': 1, 'A': 1}
 def uniwidth(s: str) -> int:
     result = 0
@@ -124,7 +127,7 @@ def test_slice(arg: str) -> T.Tuple[int, int]:
 # Note: when adding arguments, please also add them to the completion
 # scripts in $MESONSRC/data/shell-completions/
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument('--maxfail', default=0, type=int,
+    parser.add_argument('-k', '--maxfail', default=0, type=int,
                         help='Number of failing tests before aborting the '
                         'test run. (default: 0, to disable aborting on failure)')
     parser.add_argument('--repeat', default=1, dest='repeat', type=int,
@@ -147,6 +150,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help='Only run tests belonging to the given suite.')
     parser.add_argument('--no-suite', default=[], dest='exclude_suites', action='append', metavar='SUITE',
                         help='Do not run tests belonging to the given suite.')
+    parser.add_argument('--exclude', default=[], dest='exclude', action='append',
+                        help='Exclude tests with the given name.')
     parser.add_argument('--no-stdsplit', default=True, dest='split', action='store_false',
                         help='Do not split stderr and stdout in test logs.')
     parser.add_argument('--print-errorlogs', default=False, action='store_true',
@@ -393,7 +398,6 @@ class TAPParser:
     def parse_line(self, line: T.Optional[str]) -> T.Iterator[TYPE_TAPResult]:
         if line is not None:
             self.lineno += 1
-            line = line.rstrip()
 
             # YAML blocks are only accepted after a test
             if self.state == self._AFTER_TEST:
@@ -414,6 +418,8 @@ class TAPParser:
                     return
                 yield self.Error(f'YAML block not terminated (started on line {self.yaml_lineno})')
                 self.state = self._MAIN
+
+            line = line.rstrip()
 
             assert self.state == self._MAIN
             if not line or line.startswith('#'):
@@ -505,7 +511,8 @@ class TestLogger:
     def start_test(self, harness: 'TestHarness', test: 'TestRun') -> None:
         pass
 
-    def log_subtest(self, harness: 'TestHarness', test: 'TestRun', s: str, res: TestResult) -> None:
+    def log_subtest(self, harness: 'TestHarness', test: 'TestRun', s: str, res: TestResult,
+                    explanation: T.Optional[str]) -> None:
         pass
 
     def log(self, harness: 'TestHarness', result: 'TestRun') -> None:
@@ -552,12 +559,13 @@ class ConsoleLogger(TestLogger):
         self.test_count = 0
         self.started_tests = 0
         self.spinner_index = 0
-        try:
-            self.cols, _ = os.get_terminal_size(1)
-            self.is_tty = True
-        except OSError:
-            self.cols = 80
-            self.is_tty = False
+        self.is_tty = sys.stdout.isatty()
+        self.cols = 80
+        if self.is_tty:
+            try:
+                self.cols, _ = os.get_terminal_size(1)
+            except (OSError, AttributeError):
+                self.is_tty = False
 
         self.output_start = dashes(self.SCISSORS, self.HLINE, self.cols - 2)
         self.output_end = dashes('', self.HLINE, self.cols - 2)
@@ -578,7 +586,10 @@ class ConsoleLogger(TestLogger):
 
     def print_progress(self, line: str) -> None:
         print(self.should_erase_line, line, sep='', end='\r')
-        self.should_erase_line = '\x1b[K'
+        if self.is_tty:
+            self.should_erase_line = '\x1b[K'
+        else:
+            self.should_erase_line = '\n'
 
     def request_update(self) -> None:
         self.update.set()
@@ -700,13 +711,16 @@ class ConsoleLogger(TestLogger):
             print_safe(log)
             print(self.output_end)
 
-    def log_subtest(self, harness: 'TestHarness', test: 'TestRun', s: str, result: TestResult) -> None:
+    def log_subtest(self, harness: 'TestHarness', test: 'TestRun', s: str, result: TestResult, explanation: T.Optional[str]) -> None:
         if test.verbose or (harness.options.print_errorlogs and result.is_bad()):
             self.flush()
             print(harness.format(test, mlog.colorize_console(), max_left_width=self.max_left_width,
                                  prefix=self.sub,
                                  middle=s,
                                  right=result.get_text(mlog.colorize_console())), flush=True)
+
+            if explanation is not None:
+                print(result.colorize(f"{' ' * len(self.sub)}Reason: {explanation}").get_text(mlog.colorize_console()))
 
             self.request_update()
 
@@ -725,7 +739,7 @@ class ConsoleLogger(TestLogger):
             else:
                 print(harness.format(result, mlog.colorize_console(), max_left_width=self.max_left_width),
                       flush=True)
-                if result.verbose or result.res.is_bad():
+                if result.verbose or harness.is_bad_result(result):
                     self.print_log(harness, result)
             if result.warnings:
                 print(flush=True)
@@ -977,7 +991,8 @@ class TestRun:
         self.additional_error = ''
         self.cmd: T.Optional[T.List[str]] = None
         self.env = test_env
-        self.should_fail = test.should_fail
+        self.expected_fail = test.expected_fail
+        self.expected_exitcode = test.expected_exitcode
         self.project = test.project_name
         self.junit: T.Optional[et.ElementTree] = None
         self.is_parallel = is_parallel
@@ -1037,7 +1052,7 @@ class TestRun:
         if self.needs_parsing and self.console_mode is ConsoleUser.INTERACTIVE:
             self.res = TestResult.IGNORED
         assert isinstance(self.res, TestResult)
-        if self.should_fail and self.res in (TestResult.OK, TestResult.FAIL):
+        if self.expected_fail and self.res in (TestResult.OK, TestResult.FAIL):
             self.res = TestResult.UNEXPECTEDPASS if self.res is TestResult.OK else TestResult.EXPECTEDFAIL
         if self.stdo and not self.stdo.endswith('\n'):
             self.stdo += '\n'
@@ -1093,12 +1108,14 @@ class TestRunExitCode(TestRun):
     def complete(self) -> None:
         if self.res != TestResult.RUNNING:
             pass
+        elif self.returncode == (self.expected_exitcode or 0):
+            self.res = TestResult.OK
         elif self.returncode == GNU_SKIP_RETURNCODE:
             self.res = TestResult.SKIP
         elif self.returncode == GNU_ERROR_RETURNCODE:
             self.res = TestResult.ERROR
         else:
-            self.res = TestResult.FAIL if bool(self.returncode) else TestResult.OK
+            self.res = TestResult.FAIL
         super().complete()
 
 TestRun.PROTOCOL_TO_CLASS[TestProtocol.EXITCODE] = TestRunExitCode
@@ -1133,7 +1150,7 @@ class TestRunTAP(TestRun):
         return True
 
     def complete(self) -> None:
-        if self.returncode != 0 and not self.res.was_killed():
+        if self.returncode != 0 and not self.res.is_bad():
             self.res = TestResult.ERROR
             self.stde = self.stde or ''
             self.stde += f'\n(test program exited with status code {self.returncode})'
@@ -1149,12 +1166,12 @@ class TestRunTAP(TestRun):
                 version = i.version
             elif isinstance(i, TAPParser.Bailout):
                 res = TestResult.ERROR
-                harness.log_subtest(self, i.message, res)
+                harness.log_subtest(self, i.message, res, None)
             elif isinstance(i, TAPParser.Test):
                 self.results.append(i)
                 if i.result.is_bad():
                     res = TestResult.FAIL
-                harness.log_subtest(self, i.name or f'subtest {i.number}', i.result)
+                harness.log_subtest(self, i.name or f'subtest {i.number}', i.result, i.explanation)
             elif isinstance(i, TAPParser.UnknownLine):
                 warnings.append(i)
             elif isinstance(i, TAPParser.Error):
@@ -1192,7 +1209,7 @@ class TestRunRust(TestRun):
         def parse_res(n: int, name: str, result: str) -> TAPParser.Test:
             if result == 'ok':
                 return TAPParser.Test(n, name, TestResult.OK, None)
-            elif result == 'ignored':
+            elif result.startswith('ignored'):
                 return TAPParser.Test(n, name, TestResult.SKIP, None)
             elif result == 'FAILED':
                 return TAPParser.Test(n, name, TestResult.FAIL, None)
@@ -1212,7 +1229,7 @@ class TestRunRust(TestRun):
                 name = name.replace('::', '.')
                 t = parse_res(n, name, result)
                 self.results.append(t)
-                harness.log_subtest(self, name, t.result)
+                harness.log_subtest(self, name, t.result, None)
                 n += 1
 
         res = None
@@ -1274,7 +1291,7 @@ async def read_decode(reader: asyncio.StreamReader,
             await queue.put(None)
 
 def run_with_mono(fname: str) -> bool:
-    return fname.endswith('.exe') and not (is_windows() or is_cygwin())
+    return fname.endswith('.exe') and not (is_windows() or is_cygwin() or is_os2())
 
 def check_testdata(objs: T.List[TestSerialisation]) -> T.List[TestSerialisation]:
     if not isinstance(objs, list):
@@ -1604,7 +1621,7 @@ class SingleTestRunner:
                                                  stderr=stderr,
                                                  env=env,
                                                  cwd=cwd,
-                                                 preexec_fn=preexec_fn if not is_windows() else None)
+                                                 preexec_fn=preexec_fn if not (is_windows() or is_os2()) else None)
         return TestSubprocess(p, stdout=stdout, stderr=stderr,
                               postwait_fn=postwait_fn if not is_windows() else None)
 
@@ -1657,6 +1674,7 @@ class TestHarness:
     def __init__(self, options: argparse.Namespace):
         self.options = options
         self.collected_failures: T.List[TestRun] = []
+        self.maxfail_reached = False
         self.fail_count = 0
         self.expectedfail_count = 0
         self.unexpectedpass_count = 0
@@ -1819,10 +1837,13 @@ class TestHarness:
         else:
             sys.exit(f'Unknown test result encountered: {result.res}')
 
-        if result.res.is_bad():
+        if self.is_bad_result(result):
             self.collected_failures.append(result)
         for l in self.loggers:
             l.log(self, result)
+
+    def is_bad_result(self, result: TestRun) -> bool:
+        return result.res.is_bad() and not (result.res is TestResult.INTERRUPT and self.maxfail_reached)
 
     @property
     def numlen(self) -> int:
@@ -1963,8 +1984,16 @@ class TestHarness:
                         return True
         return False
 
-    def test_suitable(self, test: TestSerialisation) -> bool:
+    def test_suitable(self, test: TestSerialisation, excluded_tests: set[str]) -> bool:
         if TestHarness.test_in_suites(test, self.options.exclude_suites):
+            return False
+
+        # Accept both --exclude name and --exclude subproject:name.
+        # For the main project, we also accept 'name' without qualification
+        # for convenience.
+        if self.build_data.project_name == test.project_name and test.name in excluded_tests:
+            return False
+        if f'{test.project_name}:{test.name}' in excluded_tests:
             return False
 
         if self.options.include_suites:
@@ -2037,7 +2066,9 @@ class TestHarness:
             print('No tests defined.', file=errorfile)
             return []
 
-        tests = [t for t in self.tests if self.test_suitable(t)]
+        excluded_tests = set(self.options.exclude)
+        tests = [t for t in self.tests if self.test_suitable(t, excluded_tests)]
+
         if self.options.args:
             tests = list(self.tests_from_args(tests))
         if self.options.slice:
@@ -2104,9 +2135,9 @@ class TestHarness:
         finally:
             self.close_logfiles()
 
-    def log_subtest(self, test: TestRun, s: str, res: TestResult) -> None:
+    def log_subtest(self, test: TestRun, s: str, res: TestResult, explanation: T.Optional[str]) -> None:
         for l in self.loggers:
-            l.log_subtest(self, test, s, res)
+            l.log_subtest(self, test, s, res, explanation)
 
     def log_start_test(self, test: TestRun) -> None:
         for l in self.loggers:
@@ -2128,6 +2159,7 @@ class TestHarness:
                 self.process_test_result(res)
                 maxfail = self.options.maxfail
                 if maxfail and self.fail_count >= maxfail and res.res.is_bad():
+                    self.maxfail_reached = True
                     cancel_all_tests()
 
         def test_done(f: asyncio.Future) -> None:

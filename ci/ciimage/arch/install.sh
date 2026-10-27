@@ -10,12 +10,12 @@ pkgs=(
   python python-pip pypy3
   ninja make git sudo fakeroot autoconf automake patch
   libelf gcc gcc-fortran gcc-objc vala rust byacc flex cython go dlang-dmd
-  mono boost qt5-base gtkmm3 gtest gmock protobuf gobject-introspection
+  mono boost boost-libs qt5-base gtkmm3 gtest gmock protobuf gobject-introspection
   itstool glib2-devel gtk3 java-environment=8 gtk-doc llvm clang sdl2 graphviz
   doxygen vulkan-headers vulkan-icd-loader vulkan-validation-layers openssh mercurial gtk-sharp-3 qt5-tools
   libwmf cmake netcdf-fortran openmpi nasm gnustep-base gettext
   python-lxml hotdoc rust-bindgen qt6-base qt6-tools qt6-declarative wayland wayland-protocols
-  intel-oneapi-mkl
+  intel-oneapi-mkl zlib-static
   # cuda
 )
 
@@ -61,4 +61,6 @@ su $AUR_USER -c "yay -S $PACMAN_OPTS ${aur_pkgs[*]}"
 
 # cleanup
 pacman -Rs --noconfirm "${cleanup_pkgs[@]}"
-su $AUR_USER -c "yes | yay -Scc"
+# clear the pacman cache first, since the yay user may not have permission
+pacman -Sc --noconfirm
+su $AUR_USER -c "yes | yay -Sc --aur"

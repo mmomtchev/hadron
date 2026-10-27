@@ -91,6 +91,13 @@ write files into the source directory). [See the upstream
 docs](https://rust-analyzer.github.io/book/non_cargo_based_projects.html) for
 more information on how to configure that.
 
+### Clippy
+You can use the "clippy-json" build target as rust-analyer's "check command" to recieve clippy diagnostics in your editor. 
+
+Without overriding the check command, the LSP will function in a limited state, only showing certain errors (for example, no borrow checking errors are shown).
+
+[Non cargo based projects](https://rust-analyzer.github.io/book/non_cargo_based_projects.html) shows how to override the check command, you probably want to set it to `ninja clippy-json -C build`.
+
 ## Linking with standard libraries
 
 Meson will link the Rust standard libraries (e.g. libstd) statically, unless the
@@ -106,3 +113,95 @@ target name.  First, dashes, spaces and dots are replaced with underscores.  Sec
 *since 1.10.0* anything after the first `+` is dropped.  This allows creating multiple
 targets for the same crate name, for example when the same crate is built multiple
 times with different features, or for both the build and the host machine.
+
+## Compiler vs. linker arguments for Rust
+
+While `rustc` integrates the compiler and linker phase, it is useful
+to pass linker arguments to it via the `-Clink-arg=` command line
+option.
+
+*Since 1.11.0* `add_project_link_arguments()`,
+`add_global_link_arguments()`, the `link_args` keyword argument wrap the
+arguments with `-Clink-arg=` before passing them to the Rust compiler.
+Furthermore, these arguments are only included when creating binary or
+shared library crates.  Likewise, methods such as `has_link_argument()`
+wrap the arguments being tested with `-Clink-arg=`.
+
+## Cargo interaction
+
+*Since 1.11.0*
+
+In most cases, a Rust program will use Cargo to download crates.  Meson is able
+to build Rust library crates based on a `Cargo.toml` file; each external crate
+corresponds to a subproject.  Rust modules that do not need a `build.rs` file
+need no intervention, whereas if a `build.rs` file is present it needs to be
+converted manually to Meson code.
+
+To enable automatic configuration of Cargo dependencies, your project must
+have `Cargo.toml` and `Cargo.lock` files in the root source directory;
+this enables proper feature resolution across crates.  You can then
+create a workspace object using the Rust module, and retrieve specific
+packages from the workspace:
+
+```meson
+rust = import('rust')
+cargo_ws = rustmod.workspace()
+anyhow_dep = ws.subproject('anyhow').dependency()
+```
+
+The workspace object also enables configuration of Cargo features, for example
+from Meson options:
+
+```meson
+cargo_ws = rustmod.workspace(
+    features: ['feature1', 'feature2'])
+```
+
+Finally, the workspace object is able to build targets specified in `lib`
+or `bin` sections, extracting compiler arguments for dependencies and
+diagnostics from the Cargo.toml file.  The simplest case is that of building
+a simple binary crate:
+
+```meson
+cargo_ws.package().executable(install: true)
+```
+
+For a workspace:
+
+```meson
+pkg_lib = cargo_ws.package('myproject-lib')
+lib = pkg_lib.library(install: false)
+pkg_lib.override_dependency(declare_dependency(link_with: lib))
+
+cargo_ws.package().executable(install: true)
+```
+
+Sources are automatically discovered, but can be specified as a
+[[@structured_src]] if they are partly generated.
+
+It is still possible to use keyword arguments to link non-Rust build targets,
+or even to use the usual Meson functions such as [[static_library]] or
+[[executable]].
+
+### Non-default and wildcard workspace members
+
+With Cargo, workspace members that are not included in
+`workspace.default-members` can be accessed through the `-p` option.
+In Meson, non-default members are not part of dependency resolution
+by default; the set of optional packages that has to be configured
+is specified *since 1.12.0* in the `extra_members` argument of the
+`workspace()` method, while up to Meson 1.11.x non-default members would
+never be built.
+
+Cargo subprojects will only build default members unless they have a custom
+(handwritten) `meson.build` that sets `extra_members` appropriately;
+typically the choice of which members to build will come from a Meson
+option.
+
+Furthermore, while Cargo accepts glob patterns for the `workspace.members`
+field, Meson (*since 1.12.0*) expands such patterns but never treats
+globbed patterns as default members.  Therefore, they will only be built
+if included in `extra_members`.
+
+Note that crates that come from `crates.io` are never workspaces, and
+therefore they are not subject to these differences.

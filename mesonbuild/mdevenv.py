@@ -6,7 +6,6 @@ import tempfile
 import shutil
 import sys
 import itertools
-import signal
 import typing as T
 
 from pathlib import Path
@@ -70,6 +69,18 @@ def get_env(b: build.Build, dump_fmt: T.Optional[str]) -> T.Tuple[T.Dict[str, st
         extra_env.set('QEMU_LD_PREFIX', [sysroot])
 
     env = {} if dump_fmt else os.environ.copy()
+    if not is_windows():
+        # From XDG spec:
+        # > If $XDG_DATA_DIRS is either not set or empty, a value equal to /usr/local/share/:/usr/share/ should be used.
+        # We need that default value, otherwise adding directories with devenv.prepend()
+        # would override system directories instead of adding to them. Note that
+        # devenv.set() still overrides this default. Distros set their default
+        # XDG_DATA_DIRS, but CI containers often do not.
+        if not env.get('XDG_DATA_DIRS'):
+            env['XDG_DATA_DIRS'] = '/usr/local/share:/usr/share'
+        if not env.get('XDG_CONFIG_DIRS'):
+            env['XDG_CONFIG_DIRS'] = '/etc/xdg'
+
     default_fmt = '${0}' if dump_fmt in {'sh', 'export'} else None
     varnames = set()
     for i in itertools.chain(b.devenv, {extra_env}):
@@ -224,7 +235,7 @@ def run(options: argparse.Namespace) -> int:
             args = [os.environ.get("SHELL", os.path.realpath("/bin/sh"))]
         if "bash" in args[0]:
             # Let the GC remove the tmp file
-            tmprc = tempfile.NamedTemporaryFile(mode='w')
+            tmprc = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8')
             tmprc.write('[ -e ~/.bashrc ] && . ~/.bashrc\n')
             if prompt_prefix:
                 tmprc.write(f'export PS1="{prompt_prefix} $PS1"\n')
@@ -233,25 +244,13 @@ def run(options: argparse.Namespace) -> int:
             tmprc.flush()
             args.append("--rcfile")
             args.append(tmprc.name)
-        elif args[0].endswith('fish'):
-            # Ignore SIGINT while using fish as the shell to make it behave
-            # like other shells such as bash and zsh.
-            # See: https://gitlab.freedesktop.org/gstreamer/gst-build/issues/18
-            signal.signal(signal.SIGINT, lambda _, __: True)
-            if prompt_prefix:
-                args.append('--init-command')
-                prompt_cmd = f'''functions --copy fish_prompt original_fish_prompt
-                function fish_prompt
-                    echo -n '[{prompt_prefix}] '(original_fish_prompt)
-                end'''
-                args.append(prompt_cmd)
         elif args[0].endswith('zsh'):
             # Let the GC remove the tmp file
             tmpdir = tempfile.TemporaryDirectory()
-            with open(os.path.join(tmpdir.name, '.zshrc'), 'w') as zshrc: # pylint: disable=unspecified-encoding
+            with open(os.path.join(tmpdir.name, '.zshrc'), 'w', encoding='utf-8') as zshrc:
                 zshrc.write('[ -e ~/.zshrc ] && . ~/.zshrc\n')
                 if prompt_prefix:
-                    zshrc.write(f'export PROMPT="[{prompt_prefix}] $PROMPT"\n')
+                    zshrc.write(f'export PROMPT="{prompt_prefix} $PROMPT"\n')
             devenv['ZDOTDIR'] = tmpdir.name
         if 'DYLD_LIBRARY_PATH' in devenv and macos_sip_enabled():
             mlog.warning('macOS System Integrity Protection is enabled: DYLD_LIBRARY_PATH cannot be set in the subshell')
