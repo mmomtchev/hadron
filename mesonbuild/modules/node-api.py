@@ -216,6 +216,8 @@ class NapiModule(ExtensionModule):
             self.cache_root_dir = Path(home) / 'node-hadron'
         else:
             raise mesonlib.MesonException(f'Unsupported platform: {sys.platform}')
+        if not os.path.exists(self.cache_root_dir):
+            self.cache_root_dir.mkdir(parents=True)
         self.napi_dir = self.cache_root_dir / self.node_process['release']['name'] / self.node_process['version']
 
     def download_item(self, url: str, dest: Path) -> None:
