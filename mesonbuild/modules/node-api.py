@@ -113,6 +113,7 @@ class NapiModule(ExtensionModule):
         self.node_process: Any = None
         self.node_addon_api_package: Any = None
         self.emnapi_package: Any = None
+        self.cache_root_dir: Path = None
         self.napi_dir: Path = None
         self.napi_includes: Path = None
         self.napi_lib: Path = None
@@ -206,15 +207,16 @@ class NapiModule(ExtensionModule):
     def get_napi_dir(self) -> None:
         if sys.platform in 'linux':
             home = os.environ['HOME'] if 'HOME' in os.environ else '/tmp'
-            self.napi_dir = Path(home) / '.cache' / 'node-hadron' / self.node_process['release']['name'] / self.node_process['version']
+            self.cache_root_dir = Path(home) / '.cache' / 'node-hadron'
         elif sys.platform == 'darwin':
             home = os.environ['HOME'] if 'HOME' in os.environ else '/tmp'
-            self.napi_dir = Path(home) / 'Library' / 'Caches' / 'node-hadron' / self.node_process['release']['name'] / self.node_process['version']
+            self.cache_root_dir = Path(home) / 'Library' / 'Caches' / 'node-hadron'
         elif sys.platform == 'win32':
             home = os.environ['LOCALAPPDATA'] if 'LOCALAPPDATA' in os.environ else 'C:\\'
-            self.napi_dir = Path(home) / 'node-hadron' / self.node_process['release']['name'] / self.node_process['version']
+            self.cache_root_dir = Path(home) / 'node-hadron'
         else:
             raise mesonlib.MesonException(f'Unsupported platform: {sys.platform}')
+        self.napi_dir = self.cache_root_dir / self.node_process['release']['name'] / self.node_process['version']
 
     def download_item(self, url: str, dest: Path) -> None:
         try:
@@ -231,22 +233,22 @@ class NapiModule(ExtensionModule):
                     mlog.log(f'Downloading {url} to {str(file)}')
                     remote = urllib.request.urlopen(url)
                     data = remote.read()
-                    if os.path.exists(file):
-                        mlog.warning(f'{file} appeared while downloading, multiple concurrent builds?')
-                        return
                     with file.open('wb') as output:
                         output.write(data)
         except Exception as e:
             raise mesonlib.MesonException(f'Failed downloading from {url}: {str(e)}')
 
     def download_headers(self) -> None:
-        if 'headersUrl' in self.node_process['release']:
-            self.download_item(self.node_process['release']['headersUrl'], self.napi_dir)
-            self.napi_includes = self.napi_dir / 'include' / 'node'
-        if 'libUrl' in self.node_process['release']:
-            url = self.node_process['release']['libUrl']
-            self.download_item(url, self.napi_dir)
-            self.napi_lib = self.napi_dir / os.path.basename(urllib.parse.urlparse(url).path)
+        with mesonlib.DirectoryLock(self.cache_root_dir, '.lock',
+                                    mesonlib.DirectoryLockAction.WAIT,
+                'Failed to lock node headers directory', optional=True):
+            if 'headersUrl' in self.node_process['release']:
+                self.download_item(self.node_process['release']['headersUrl'], self.napi_dir)
+                self.napi_includes = self.napi_dir / 'include' / 'node'
+            if 'libUrl' in self.node_process['release']:
+                url = self.node_process['release']['libUrl']
+                self.download_item(url, self.napi_dir)
+                self.napi_lib = self.napi_dir / os.path.basename(urllib.parse.urlparse(url).path)
 
         mlog.log('Node.js library distribution: ', mlog.bold(str(self.napi_dir)))
 
