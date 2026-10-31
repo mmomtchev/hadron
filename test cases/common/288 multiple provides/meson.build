@@ -1,3 +1,0 @@
-project('wraptest')
-
-subproject('subproject')

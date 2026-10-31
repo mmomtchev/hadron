@@ -58,6 +58,11 @@ class CLikeCompilerArgs(arglist.CompilerArgs):
     # ``-isystem`` ordering, so adding ``-isystem`` to prepend_prefixes
     # would silently break them by reversing their include priority.
     # See NinjaBackend._generate_single_compile_target_args().
+
+    # meson is keeping this bug in order to not break systemd
+    # it is fixed in hadron since it messes up conan builds
+    # TODO mmom: Wait for meson to revisit this problem and
+    # re-enable test cases/common/294 systemd regression/meson.build
     prepend_prefixes = ('-I', '-L', '-isystem')
     dedup2_prefixes = ('-I', '-isystem', '-L', '-D', '-U')
 

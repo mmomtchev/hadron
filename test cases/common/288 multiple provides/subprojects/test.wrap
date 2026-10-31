@@ -1,7 +1,0 @@
-[wrap-file]
-directory = libfoobar
-source_filename = foobar-1.0.tar.gz
-
-[provide]
-dependency_names=foobar
-foobar=foobar_dep

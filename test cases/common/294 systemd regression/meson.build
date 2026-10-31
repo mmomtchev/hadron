@@ -5,6 +5,8 @@
 
 project('test', 'c', meson_version: '>=0.62.0', version: '1.0')
 
+error('MESON_SKIP_TEST: meson bug preserved because of systemd fixed in hadron')
+
 if host_machine.system() != 'linux'
   error('MESON_SKIP_TEST: systemd include ordering regression test needs Linux')
 endif

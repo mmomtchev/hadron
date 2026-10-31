@@ -75,7 +75,7 @@ class MachineFileStoreTests(TestCase):
             fname = f.name
 
         try:
-            parser = machinefile.MachineFileParser([fname], '/tmp')
+            parser = machinefile.MachineFileParser([fname], '/tmp', '/tmp')
             if sys.platform in ('linux', 'darwin'):
                 home = PurePath(os.environ['HOME'])
             elif sys.platform in ('win32', 'cygwin'):

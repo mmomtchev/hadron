@@ -57,6 +57,9 @@ jobs:
       MESON_CI_JOBNAME: ubuntu-${{ github.job }}
 
     steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24.x
     - uses: mymindstorm/setup-emsdk@v14
       with:
         version: 4.0.19

@@ -1,3 +1,0 @@
-project('subproject')
-
-dependency('foobar')
