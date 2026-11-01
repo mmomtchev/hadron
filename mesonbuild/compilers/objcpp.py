@@ -34,6 +34,12 @@ class ObjCPPCompiler(CLikeCompiler, Compiler):
                           full_version=full_version, linker=linker)
         CLikeCompiler.__init__(self)
 
+    def get_no_stdinc_args(self) -> T.List[str]:
+        return ['-nostdinc++']
+
+    def get_no_stdlib_link_args(self) -> T.List[str]:
+        return ['-nostdlib++']
+
     def form_compileropt_key(self, basename: str) -> OptionKey:
         if basename == 'std':
             return OptionKey('cpp_std', machine=self.for_machine)
@@ -48,9 +54,8 @@ class ObjCPPCompiler(CLikeCompiler, Compiler):
     def get_display_language() -> str:
         return 'Objective-C++'
 
-    def sanity_check(self, work_dir: str) -> None:
-        code = '#import<stdio.h>\nclass MyClass;int main(void) { return 0; }\n'
-        return self._sanity_check_impl(work_dir, 'sanitycheckobjcpp.mm', code)
+    def _sanity_check_source_code(self) -> str:
+        return '#import<stdio.h>\nclass MyClass;int main(void) { return 0; }\n'
 
     def get_options(self) -> MutableKeyedOptionDictType:
         opts = super().get_options()

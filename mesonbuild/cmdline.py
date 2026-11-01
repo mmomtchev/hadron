@@ -9,7 +9,6 @@ import configparser
 import os
 import shlex
 import typing as T
-from itertools import chain
 
 from . import options
 from .mesonlib import MesonException
@@ -27,9 +26,13 @@ if T.TYPE_CHECKING:
 
         :param cmd_line_options: command line options parsed into an OptionKey:
             str mapping
+        :param builtin_keys: set of OptionKeys that were passed as --option
+        :param d_keys: set of OptionKeys that were passed as -Doption=value
         """
 
         cmd_line_options: T.Dict[OptionKey, T.Optional[str]]
+        builtin_keys: T.Set[OptionKey]
+        d_keys: T.Set[OptionKey]
         cross_file: T.List[str]
         native_file: T.List[str]
 
@@ -61,9 +64,11 @@ def read_cmd_line_file(build_dir: str, options: SharedCMDOptions) -> None:
 
     # Do a copy because config is not really a dict. options.cmd_line_options
     # overrides values from the file.
-    d = {OptionKey.from_string(k): v for k, v in config['options'].items()}
+    d: dict[OptionKey, str | None] = {OptionKey.from_string(k): v for k, v in config['options'].items()}
     d.update(options.cmd_line_options)
     options.cmd_line_options = d
+    options.builtin_keys = set()
+    options.d_keys = set(d)
 
     properties = config['properties']
     if not options.cross_file:
@@ -126,7 +131,7 @@ class KeyNoneAction(argparse.Action):
         super().__init__(option_strings, dest, nargs=1, **kwargs)
 
     def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
-                 arg: T.List[str], option_string: str = None) -> None: # type: ignore[override]
+                 arg: T.List[str], option_string: str | None = None) -> None: # type: ignore[override]
         current_dict = getattr(namespace, self.dest)
         if current_dict is None:
             current_dict = {}
@@ -134,6 +139,44 @@ class KeyNoneAction(argparse.Action):
 
         key = OptionKey.from_string(arg[0])
         current_dict[key] = None
+
+
+class BuiltinAction(argparse.Action):
+    """
+    Custom argparse Action for builtin options that stores directly into cmd_line_options.
+    """
+
+    def __init__(self, option_strings: str, dest: str,
+                 option_key: OptionKey, option: options.AnyOptionType,
+                 help_suffix: str = '', **kwargs: T.Any) -> None:
+        self.option_key = option_key
+
+        h = option.description.rstrip('.')
+        if isinstance(option.default, bool):
+            kwargs['nargs'] = 0
+        else:
+            kwargs['nargs'] = 1
+            if help_suffix:
+                help_suffix += ', '
+            help_suffix += 'default: ' + str(options.argparse_prefixed_default(option, name=option_key))
+            if isinstance(option, (options.EnumeratedUserOption, options.UserArrayOption)):
+                kwargs['choices'] = option.choices
+
+        if help_suffix:
+            help_suffix = f' ({help_suffix})'
+        super().__init__(option_strings, 'cmd_line_options', default=argparse.SUPPRESS,
+                         help=f'{h}{help_suffix}.', **kwargs)
+
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
+                 arg: T.Optional[T.List[str]], option_string: str | None = None) -> None: # type: ignore[override]
+        current_dict = getattr(namespace, self.dest)
+        if current_dict is None:
+            current_dict = {}
+            setattr(namespace, self.dest, current_dict)
+
+        current_dict[self.option_key] = 'true' if not arg else arg[0]
+        if hasattr(namespace, 'builtin_keys'):
+            namespace.builtin_keys.add(self.option_key)
 
 
 class KeyValueAction(argparse.Action):
@@ -146,7 +189,7 @@ class KeyValueAction(argparse.Action):
         super().__init__(option_strings, dest, nargs=1, **kwargs)
 
     def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
-                 arg: T.List[str], option_string: str = None) -> None: # type: ignore[override]
+                 arg: T.List[str], option_string: str | None = None) -> None: # type: ignore[override]
         current_dict = getattr(namespace, self.dest)
         if current_dict is None:
             current_dict = {}
@@ -159,29 +202,40 @@ class KeyValueAction(argparse.Action):
         except ValueError:
             parser.error(f'The argument for option {option_string!r} must be in OPTION=VALUE format.')
 
+        if hasattr(namespace, 'd_keys'):
+            namespace.d_keys.add(key)
+
 
 def register_builtin_arguments(parser: argparse.ArgumentParser) -> None:
     for n, b in options.BUILTIN_OPTIONS.items():
-        options.option_to_argparse(b, n, parser, '')
+        cmdline_name = options.argparse_name_to_arg(str(n))
+        parser.add_argument(cmdline_name, action=BuiltinAction,
+                            option_key=n, option=b)
     for n, b in options.BUILTIN_OPTIONS_PER_MACHINE.items():
-        options.option_to_argparse(b, n, parser, ' (just for host machine)')
-        options.option_to_argparse(b, n.as_build(), parser, ' (just for build machine)')
+        cmdline_name = options.argparse_name_to_arg(str(n))
+        parser.add_argument(cmdline_name, action=BuiltinAction,
+                            option_key=n, option=b, help_suffix='just for host machine')
+        build_n = n.as_build()
+        cmdline_name = options.argparse_name_to_arg(str(build_n))
+        parser.add_argument(cmdline_name, action=BuiltinAction,
+                            option_key=build_n, option=b, help_suffix='just for build machine')
     parser.add_argument('-D', action=KeyValueAction, dest='cmd_line_options', default={}, metavar="option=value",
                         help='Set the value of an option, can be used several times to set multiple options.')
+    parser.set_defaults(builtin_keys=set(), d_keys=set())
 
 def parse_cmd_line_options(args: SharedCMDOptions) -> None:
-    # Merge builtin options set with --option into the dict.
-    for key in chain(
-            options.BUILTIN_OPTIONS.keys(),
-            (k.as_build() for k in options.BUILTIN_OPTIONS_PER_MACHINE.keys()),
-            options.BUILTIN_OPTIONS_PER_MACHINE.keys(),
-    ):
-        name = str(key)
-        value = getattr(args, name, None)
-        if value is not None:
-            if key in args.cmd_line_options:
-                cmdline_name = options.argparse_name_to_arg(name)
-                raise MesonException(
-                    f'Got argument {name} as both -D{name} and {cmdline_name}. Pick one.')
-            args.cmd_line_options[key] = value
-            delattr(args, name)
+    # Check for options passed as both --option and -Doption=value.
+    overlap = args.builtin_keys & args.d_keys
+    if overlap:
+        name = str(overlap.pop())
+        cmdline_name = options.argparse_name_to_arg(name)
+        raise MesonException(
+            f'Got argument {name} as both -D{name} and {cmdline_name}. Pick one.')
+
+    # Ensure buildtype is processed before debug and optimization, so that
+    # the buildtype expansion sets their defaults and explicit values for
+    # debug/optimization override them.
+    bt_key = OptionKey('buildtype')
+    if bt_key in args.cmd_line_options:
+        bt_val = args.cmd_line_options.pop(bt_key)
+        args.cmd_line_options = {bt_key: bt_val, **args.cmd_line_options}

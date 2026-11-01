@@ -31,7 +31,7 @@ from mesonbuild.options import OptionKey
 from mesonbuild.compilers import (
     detect_c_compiler, detect_cpp_compiler, compiler_from_language,
 )
-from mesonbuild.compilers.c import AppleClangCCompiler
+from mesonbuild.compilers.c import AppleClangCCompiler, ElbrusCompiler
 from mesonbuild.compilers.cpp import AppleClangCPPCompiler
 from mesonbuild.compilers.objc import AppleClangObjCCompiler
 from mesonbuild.compilers.objcpp import AppleClangObjCPPCompiler
@@ -104,6 +104,21 @@ class LinuxlikeTests(BasePlatformTests):
         lib1 = os.path.join(self.builddir, 'libmylib.so')
         soname = get_soname(lib1)
         self.assertEqual(soname, 'libmylib.so')
+
+    @skip_if_not_language('rust')
+    def test_rust_soname(self):
+        '''
+        Test that the soname is set correctly for shared libraries. This can't
+        be an ordinary test case because we need to run `readelf` and actually
+        check the soname.
+        https://github.com/mesonbuild/meson/issues/785
+        '''
+        testdir = os.path.join(self.rust_test_dir, '2 sharedlib')
+        self.init(testdir)
+        self.build()
+        lib1 = os.path.join(self.builddir, 'cdylib/libnot_so_rusty.so')
+        soname = get_soname(lib1)
+        self.assertEqual(soname, 'libnot_so_rusty.so')
 
     def test_custom_soname(self):
         '''
@@ -457,6 +472,8 @@ class LinuxlikeTests(BasePlatformTests):
             raise SkipTest('asan not available on Cygwin')
         if is_openbsd():
             raise SkipTest('-fsanitize=address is not supported on OpenBSD')
+        if is_sunos():
+            raise SkipTest('-fsanitize=address is not supported on illumos')
 
         testdir = os.path.join(self.common_test_dir, '1 trivial')
         env = {'CFLAGS': '-fsanitize=address'}
@@ -1009,6 +1026,8 @@ class LinuxlikeTests(BasePlatformTests):
             raise SkipTest('asan not available on Cygwin')
         if is_openbsd():
             raise SkipTest('-fsanitize=address is not supported on OpenBSD')
+        if is_sunos():
+            raise SkipTest('-fsanitize=address is not supported on illumos')
 
         testdir = os.path.join(self.common_test_dir, '1 trivial')
         env = {'CFLAGS': '-fsanitize=address', 'LDFLAGS': '-I.'}
@@ -1065,14 +1084,12 @@ class LinuxlikeTests(BasePlatformTests):
         self.init(testdir, extra_args=['-Db_coverage=true'], default_args=False)
         self.build('reconfigure')
 
+    @skip_if_not_language('vala')
     def test_vala_generated_source_buildir_inside_source_tree(self):
         '''
         Test that valac outputs generated C files in the expected location when
         the builddir is a subdir of the source tree.
         '''
-        if not shutil.which('valac'):
-            raise SkipTest('valac not installed.')
-
         testdir = os.path.join(self.vala_test_dir, '8 generated sources')
         newdir = os.path.join(self.builddir, 'srctree')
         shutil.copytree(testdir, newdir)
@@ -1629,11 +1646,11 @@ class LinuxlikeTests(BasePlatformTests):
             raise SkipTest('Solaris currently cannot override the linker.')
         if not shutil.which(check):
             raise SkipTest(f'Could not find {check}.')
-        envvars = [mesonbuild.envconfig.ENV_VAR_PROG_MAP[f'{lang}_ld']]
+        envvars = mesonbuild.envconfig.ENV_VAR_PROG_MAP[f'{lang}_ld'].copy()
 
         # Also test a deprecated variable if there is one.
         if f'{lang}_ld' in mesonbuild.envconfig.DEPRECATED_ENV_PROG_MAP:
-            envvars.append(
+            envvars.extend(
                 mesonbuild.envconfig.DEPRECATED_ENV_PROG_MAP[f'{lang}_ld'])
 
         for envvar in envvars:
@@ -1643,6 +1660,8 @@ class LinuxlikeTests(BasePlatformTests):
                 if isinstance(comp, (AppleClangCCompiler, AppleClangCPPCompiler,
                                      AppleClangObjCCompiler, AppleClangObjCPPCompiler)):
                     raise SkipTest('AppleClang is currently only supported with ld64')
+                if isinstance(comp, ElbrusCompiler):
+                    raise SkipTest('ElbrusCompiler currently cannot override the linker.')
                 if lang != 'rust' and comp.use_linker_args('bfd', '') == []:
                     raise SkipTest(
                         f'Compiler {comp.id} does not support using alternative linkers')
@@ -1992,7 +2011,7 @@ class LinuxlikeTests(BasePlatformTests):
         dependencies of the staticlib are not passed to the C linker.
         See: https://github.com/mesonbuild/meson/issues/11721
         '''
-        testdir = os.path.join(self.rust_test_dir, '34 staticlib rlib deps')
+        testdir = os.path.join(self.rust_test_dir, '36 staticlib rlib deps')
         self.init(testdir)
         targets = self.introspect('--targets')
         executable = next(t for t in targets if t['type'] == 'executable')

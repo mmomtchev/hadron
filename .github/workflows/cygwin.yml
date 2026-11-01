@@ -45,14 +45,6 @@ jobs:
       # makes about file modes
       - run: icacls . /inheritance:r /T /C
 
-      - uses: actions/cache/restore@v4
-        id: restore-cache
-        with:
-          # should use 'pip3 cache dir' to discover this path
-          path: D:\cygwin\home\runneradmin\.cache\pip
-          key: cygwin-pip-${{ github.run_number }}
-          restore-keys: cygwin-pip-
-
       - run: git config --global core.autocrlf input
 
       - uses: actions/checkout@v4
@@ -65,36 +57,46 @@ jobs:
             gcc-fortran
             gcc-objc++
             gcc-objc
+            gcovr
             git
             gobject-introspection
             gtk-doc
             libboost-devel
             libglib2.0-devel
             libgtk3-devel
-            libxml2-devel
-            libxslt-devel
             make
             ninja
-            python2-devel
-            python3-devel
-            python3-libxml2
-            python3-libxslt
-            python3-gi
-            python39-pip
-            python39-wheel
+            python312-devel
+            python312-fastjsonschema
+            python312-pefile
+            python312-pip
+            python312-wheel
             vala
             zlib-devel
+
+      - name: Find pip cache dir
+        id: pip-cache
+        run: |
+          export PATH=/usr/bin:/usr/local/bin:$(cygpath ${SYSTEMROOT})/system32
+          echo "dir=$(cygpath -wa $(python3 -m pip cache dir))" >> "$GITHUB_OUTPUT"
+        shell: bash --noprofile --norc -o igncr -eo pipefail '{0}'
+
+      - uses: actions/cache/restore@v4
+        id: restore-cache
+        with:
+          path: ${{ steps.pip-cache.outputs.dir }}
+          key: cygwin-pip-${{ github.run_number }}
+          restore-keys: cygwin-pip-
 
       - name: Run pip
         run: |
           export PATH=/usr/bin:/usr/local/bin:$(cygpath ${SYSTEMROOT})/system32
-          python3 -m pip --disable-pip-version-check install gcovr fastjsonschema pefile pytest pytest-subtests pytest-xdist
-        shell: D:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
+          python3 -m pip --disable-pip-version-check install pytest pytest-subtests pytest-xdist
+        shell: bash --noprofile --norc -o igncr -eo pipefail '{0}'
 
       - uses: actions/cache/save@v4
         with:
-          # should use 'pip3 cache dir' to discover this path
-          path: D:\cygwin\home\runneradmin\.cache\pip
+          path: ${{ steps.pip-cache.outputs.dir }}
           key: cygwin-pip-${{ github.run_number }}
 
       - name: Run tests
@@ -105,7 +107,7 @@ jobs:
           # Cygwin's static boost installation is broken (some static library
           # variants such as boost_thread are not present)
           SKIP_STATIC_BOOST: 1
-        shell: D:\cygwin\bin\bash.exe --noprofile --norc -o igncr -eo pipefail '{0}'
+        shell: bash --noprofile --norc -o igncr -eo pipefail '{0}'
 
       - uses: actions/upload-artifact@v4
         with:

@@ -38,7 +38,7 @@ def no_pkgconfig():
 
     def new_search(self, name, search_dirs, exclude_paths):
         if name == 'pkg-config':
-            return [None]
+            return []
         return old_search(self, name, search_dirs, exclude_paths)
 
     def new_which(cmd, **kwargs):
@@ -143,14 +143,12 @@ class FailureTests(BasePlatformTests):
         out = self.obtainMesonOutput(contents, match, extra_args, langs, meson_version)
         self.assertNotRegex(out, match)
 
-    @skipIfNoPkgconfig
+    @skipIfNoPkgconfigDep('zlib')
     def test_dependency(self):
-        if subprocess.call(['pkg-config', '--exists', 'zlib']) != 0:
-            raise unittest.SkipTest('zlib not found with pkg-config')
         a = (("dependency('zlib', method : 'fail')", 'dependency keyword argument "method" must be one of auto, builtin, cmake, config-tool, cups-config, dub, extraframework, libwmf-config, pcap-config, pkg-config, qmake, sdlconfig, sysconfig, system, not fail'),
              ("dependency('zlib', static : '1')", "dependency keyword argument 'static' was of type str but should have been one of: bool, NoneType"),
              ("dependency('zlib', version : 1)", r"dependency keyword argument 'version' was of type array\[int\] but should have been array\[str\]"),
-             ("dependency('zlib', required : 1)", "dependency keyword argument 'required' was of type int but should have been one of: bool, UserFeatureOption"),
+             ("dependency('zlib', required : 1)", "dependency keyword argument 'required' was of type int but should have been one of: bool, Feature"),
              ("dependency('zlib', method : 1)", "dependency keyword argument 'method' was of type int but should have been str"),
              ("dependency('zlibfail')", self.dnf),)
         for contents, match in a:

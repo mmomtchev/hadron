@@ -142,7 +142,7 @@ kwargs:
       serializing all targets in this pool.
 
   command:
-    type: array[str | file | exe | external_program]
+    type: array[str | file | exe | program]
     description: |
       Command to run to create outputs from inputs. The command
       may be strings or the return value of functions that return file-like
@@ -155,6 +155,9 @@ kwargs:
       '-arg1', '-arg2']` rather than as a string `'commandname -arg1
       -arg2'` as the latter will *not* work.
 
+      *Note:* due to an [issue with path handling](https://github.com/mesonbuild/meson/issues/1564)
+      any backslash (`\`) characters are rewritten as slash (`/`).
+
   depend_files:
     type: array[str | file]
     description: |
@@ -164,7 +167,7 @@ kwargs:
       argument. Useful for adding regen dependencies.
 
   depends:
-    type: array[build_tgt | custom_tgt | custom_idx]
+    type: array[build_tgt | custom_tgt | custom_idx | program]
     description: |
       Specifies that this target depends on the specified
       target(s), even though it does not take any of them as a command
@@ -172,7 +175,7 @@ kwargs:
       e.g. does globbing internally. Usually you should just put the
       generated sources as inputs and Meson will set up all dependencies
       automatically (custom_idx was unavailable as a type between 0.60
-      and 1.4.0).
+      and 1.4.0).  `program` is supported *since 1.11.2*.
 
   depfile:
     type: str
@@ -186,8 +189,10 @@ kwargs:
       are also accepted.
 
   input:
-    type: array[str | file]
-    description: Array of source files. *(since 0.41.0)* the array is flattened.
+    type: array[str | file | program]
+    description: |
+      Array of source files. *(since 0.41.0)* the array is flattened.
+      `program` is supported *since 1.11.2*.
 
   install:
     type: bool

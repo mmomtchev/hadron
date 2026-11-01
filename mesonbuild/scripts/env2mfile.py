@@ -17,21 +17,25 @@ from ..compilers.detect import defaults as compiler_names
 if T.TYPE_CHECKING:
     import argparse
 
+    from ..compilers.compilers import Language
+
 # Note: when adding arguments, please also add them to the completion
 # scripts in $MESONSRC/data/shell-completions/
 def add_arguments(parser: 'argparse.ArgumentParser') -> None:
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--cross', default=False, action='store_true',
+                        help='Generate a cross compilation file.')
+    action.add_argument('--native', default=False, action='store_true',
+                        help='Generate a native compilation file.')
+    action.add_argument('--android', default=False, action='store_true',
+                        help='Generate cross files for Android toolchains.')
+
     parser.add_argument('--debarch', default=None,
                         help='The dpkg architecture to generate.')
     parser.add_argument('--gccsuffix', default="",
                         help='A particular gcc version suffix if necessary.')
     parser.add_argument('-o', required=True, dest='outfile',
                         help='The output file or directory (for Android).')
-    parser.add_argument('--cross', default=False, action='store_true',
-                        help='Generate a cross compilation file.')
-    parser.add_argument('--native', default=False, action='store_true',
-                        help='Generate a native compilation file.')
-    parser.add_argument('--android', default=False, action='store_true',
-                        help='Generate cross files for Android toolchains.')
     parser.add_argument('--use-for-build', default=False, action='store_true',
                         help='Use _FOR_BUILD envvars.')
     parser.add_argument('--system', default=None,
@@ -324,7 +328,8 @@ def write_machine_file(infos: MachineInfo, ofilename: str, write_system_info: bo
 def detect_language_args_from_envvars(langname: str, envvar_suffix: str = '') -> T.Tuple[T.List[str], T.List[str]]:
     compile_args = []
     if langname in compilers.CFLAGS_MAPPING:
-        compile_args = shlex.split(os.environ.get(compilers.CFLAGS_MAPPING[langname] + envvar_suffix, ''))
+        compile_args = shlex.split(os.environ.get(
+            compilers.CFLAGS_MAPPING[T.cast('Language', langname)] + envvar_suffix, ''))
     if langname in compilers.LANGUAGES_USING_CPPFLAGS:
         cppflags = tuple(shlex.split(os.environ.get('CPPFLAGS' + envvar_suffix, '')))
         lang_compile_args = list(cppflags) + compile_args
@@ -338,28 +343,32 @@ def detect_language_args_from_envvars(langname: str, envvar_suffix: str = '') ->
 
 def detect_compilers_from_envvars(envvar_suffix: str = '') -> MachineInfo:
     infos = MachineInfo()
-    for langname, envvarname in envconfig.ENV_VAR_COMPILER_MAP.items():
-        compilerstr = os.environ.get(envvarname + envvar_suffix)
-        if not compilerstr:
-            continue
-        if os.path.exists(compilerstr):
-            compiler = [compilerstr]
-        else:
-            compiler = shlex.split(compilerstr)
-        infos.compilers[langname] = compiler
-        lang_compile_args, lang_link_args = detect_language_args_from_envvars(langname, envvar_suffix)
-        if lang_compile_args:
-            infos.compile_args[langname] = lang_compile_args
-        if lang_link_args:
-            infos.link_args[langname] = lang_link_args
+    for langname, envvarnames in envconfig.ENV_VAR_COMPILER_MAP.items():
+        for envvarname in envvarnames:
+            compilerstr = os.environ.get(envvarname + envvar_suffix)
+            if not compilerstr:
+                continue
+            if os.path.exists(compilerstr):
+                compiler = [compilerstr]
+            else:
+                compiler = shlex.split(compilerstr)
+            infos.compilers[langname] = compiler
+            lang_compile_args, lang_link_args = detect_language_args_from_envvars(langname, envvar_suffix)
+            if lang_compile_args:
+                infos.compile_args[langname] = lang_compile_args
+            if lang_link_args:
+                infos.link_args[langname] = lang_link_args
+            break
     return infos
 
 def detect_binaries_from_envvars(infos: MachineInfo, envvar_suffix: str = '') -> None:
-    for binname, envvar_base in envconfig.ENV_VAR_TOOL_MAP.items():
-        envvar = envvar_base + envvar_suffix
-        binstr = os.environ.get(envvar)
-        if binstr:
-            infos.binaries[binname] = shlex.split(binstr)
+    for binname, envvar_bases in envconfig.ENV_VAR_TOOL_MAP.items():
+        for envvar_base in envvar_bases:
+            envvar = envvar_base + envvar_suffix
+            binstr = os.environ.get(envvar)
+            if binstr:
+                infos.binaries[binname] = shlex.split(binstr)
+                break
 
 def detect_properties_from_envvars(infos: MachineInfo, envvar_suffix: str = '') -> None:
     var = os.environ.get('PKG_CONFIG_LIBDIR' + envvar_suffix)
@@ -528,25 +537,22 @@ class AndroidDetector:
                 ofile.write("endian = 'little'\n")
 
 
-def run(options: T.Any) -> None:
-    if options.cross and options.native:
-        sys.exit('You can only specify either --cross or --native, not both.')
-    if (options.cross or options.native) and options.android:
-        sys.exit('You can not specify either --cross or --native with --android.')
-    if not options.cross and not options.native and not options.android:
-        sys.exit('You must specify --cross, --native or --android.')
+def run(options: argparse.Namespace) -> int:
     mlog.notice('This functionality is experimental and subject to change.')
-    detect_cross = options.cross
-    if detect_cross:
+    if options.cross:
         if options.use_for_build:
             sys.exit('--use-for-build only makes sense for --native, not --cross')
         infos = detect_cross_env(options)
         write_system_info = True
         write_machine_file(infos, options.outfile, write_system_info)
-    elif options.android is None:
+    elif options.native:
         infos = detect_native_env(options)
         write_system_info = False
         write_machine_file(infos, options.outfile, write_system_info)
-    else:
+    elif options.android:
         ad = AndroidDetector(options)
         ad.detect_toolchains()
+    else:
+        raise ValueError("Encountered unreachable code-path")
+
+    return 0

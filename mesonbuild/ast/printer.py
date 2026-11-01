@@ -31,7 +31,7 @@ def precedence_level(node: mparser.BaseNode) -> int:
             return 6
     elif isinstance(node, (mparser.NotNode, mparser.UMinusNode)):
         return 7
-    elif isinstance(node, mparser.FunctionNode):
+    elif isinstance(node, (mparser.FunctionNode, mparser.IndexNode, mparser.MethodNode)):
         return 8
     elif isinstance(node, (mparser.ArrayNode, mparser.DictNode)):
         return 9
@@ -156,7 +156,7 @@ class AstPrinter(AstVisitor):
         self.maybe_parentheses(node, node.left, prec > prec_left)
         self.append_padded(node.operator.value, node)
         node.lineno = self.curr_line or node.lineno
-        self.maybe_parentheses(node, node.right, prec > prec_right or (prec == prec_right and node.operation in {'sub', 'div', 'mod'}))
+        self.maybe_parentheses(node, node.right, prec > prec_right or (prec == prec_right and node.operation in {'-', '/', '%'}))
 
     def visit_NotNode(self, node: mparser.NotNode) -> None:
         node.lineno = self.curr_line or node.lineno

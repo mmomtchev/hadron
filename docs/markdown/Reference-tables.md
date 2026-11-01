@@ -162,7 +162,7 @@ These are provided by the `.system()` method call.
 
 | Value               | Comment                         |
 | -----               | -------                         |
-| android             | By convention only, subject to change |
+| android             | Android or OpenHarmony / HarmonyOS (OHOS) |
 | cygwin              | Cygwin or MSYS2 environment on Windows |
 | darwin              | Either OSX or iOS |
 | dragonfly           | DragonFly BSD |
@@ -176,6 +176,7 @@ These are provided by the `.system()` method call.
 | windows             | Native Windows (not Cygwin or MSYS2) |
 | sunos               | illumos and Solaris |
 | os/2                | OS/2 |
+| fuchsia             | Google's Fuchsia |
 
 Any string not listed above is not guaranteed to remain stable in
 future releases.
@@ -197,7 +198,8 @@ Native names as returned by the `.kernel()` method.
 | solaris             | Kernel derived from OpenSolaris by Oracle |
 | dragonfly | |
 | haiku| |
-| none                 | For e.g. bare metal embedded    |
+| fuchsia             | Google's Fuchsia |
+| none                | For e.g. bare metal embedded    |
 
 
 ## Subsystem names (since 1.2.0)
@@ -205,6 +207,10 @@ Native names as returned by the `.kernel()` method.
 A more specific description of the system in question. Most values are
 meant to be used in cross files only, as those platforms can not run
 Meson natively.
+
+### `darwin` subsystems
+
+Set when `system` is `darwin`.
 
 | Value               | Comment                         |
 | -----               | -------                         |
@@ -217,6 +223,15 @@ Meson natively.
 | visionos-simulator  |                                 |
 | watchos             | Apple watchOS                   |
 | watchos-simulator   |                                 |
+
+### `android` subsystems (since 1.12.0)
+
+Set when `system` is `android`.
+
+| Value               | Comment                         |
+| -----               | -------                         |
+| android             | Android (Bionic libc)           |
+| ohos                | OpenHarmony / HarmonyOS (OHOS)  |
 
 ## Language arguments parameter names
 

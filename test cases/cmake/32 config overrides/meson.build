@@ -1,5 +1,16 @@
 project('cmakeSubTest', ['c', 'cpp'])
 
+if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
+# This test checks if meson handles correctly not very orthodox
+# CMake config files that contain something like
+# set_property(TARGET MyLibrary PROPERTY
+#    INTERFACE_LINK_LIBRARIES
+#    "-lMyLibrary"
+# )
+# It is unlikely that a Windows config file would do this
+  error('MESON_SKIP_TEST: This test does not apply to MSVC')
+endif
+
 cm = import('cmake')
 sub_pro = cm.subproject('cmMod')
 

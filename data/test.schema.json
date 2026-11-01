@@ -46,7 +46,9 @@
               "msvc",
               "gcc",
               "cygwin",
-              "!cygwin"
+              "!cygwin",
+              "windows",
+              "!windows"
             ]
           },
           "version": {

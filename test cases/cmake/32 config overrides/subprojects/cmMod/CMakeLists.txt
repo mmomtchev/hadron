@@ -8,6 +8,7 @@ if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Release" AND NOT ${CMAKE_BUILD_TYPE} STREQU
 endif()
 
 add_library(cmModLib_internal STATIC cmMod.cpp)
+target_compile_definitions(cmModLib_internal PRIVATE CMMOD_BUILD)
 
 set(cmMod_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(cmMod CONFIG)

@@ -1,5 +1,5 @@
 {
-  "file": "wasm.txt",
+  "file": "wasm32-emscripten.txt",
   "tests": ["node-api"],
   "env": {}
 }

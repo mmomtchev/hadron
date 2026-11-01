@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import textwrap
 import typing as T
 import functools
 import os
@@ -13,10 +14,11 @@ from .compilers import (
     clike_debug_args,
     Compiler,
     CompileCheckMode,
+    ManyInOneLinkerOptionStyle,
 )
 from .mixins.clike import CLikeCompiler
 from .mixins.gnu import GnuCompiler,  gnu_optimization_args
-from .mixins.intel import IntelGnuLikeCompiler, IntelVisualStudioLikeCompiler
+from .mixins.intel import IntelGnuLikeCompiler, IntelLLVMLikeCompiler, IntelVisualStudioLikeCompiler
 from .mixins.clang import ClangCompiler
 from .mixins.elbrus import ElbrusCompiler
 from .mixins.pgi import PGICompiler
@@ -59,10 +61,12 @@ class FortranCompiler(CLikeCompiler, Compiler):
         largs = self.environment.coredata.get_external_link_args(self.for_machine, self.language)
         return cargs, largs
 
-    def sanity_check(self, work_dir: str) -> None:
-        source_name = 'sanitycheckf.f'
-        code = '      PROGRAM MAIN\n      PRINT *, "Fortran compilation is working."\n      END\n'
-        return self._sanity_check_impl(work_dir, source_name, code)
+    def _sanity_check_source_code(self) -> str:
+        return textwrap.dedent('''
+            PROGRAM MAIN
+                PRINT *, "Fortran compilation is working."
+            END
+            ''')
 
     def get_optimization_args(self, optimization_level: str) -> T.List[str]:
         return gnu_optimization_args[optimization_level]
@@ -110,7 +114,7 @@ class FortranCompiler(CLikeCompiler, Compiler):
     def has_multi_arguments(self, args: T.List[str]) -> T.Tuple[bool, bool]:
         return self._has_multi_arguments(args, 'stop; end program')
 
-    def has_multi_link_arguments(self, args: T.List[str]) -> T.Tuple[bool, bool]:
+    def has_multi_link_arguments(self, args: T.List[str], to_host_args: bool = True) -> T.Tuple[bool, bool]:
         return self._has_multi_link_arguments(args, 'stop; end program')
 
     def get_options(self) -> 'MutableKeyedOptionDictType':
@@ -340,10 +344,15 @@ class ElbrusFortranCompiler(ElbrusCompiler, FortranCompiler):
     def get_module_outdir_args(self, path: str) -> T.List[str]:
         return ['-J' + path]
 
+    def language_stdlib_only_link_flags(self) -> T.List[str]:
+        # No need to add search paths here, because LCC ships everything
+        # (C, C++, Fortran) and always knows where to look for its stuff
+        return ['-lgfortran', '-lm']
+
 
 class G95FortranCompiler(FortranCompiler):
 
-    LINKER_PREFIX = '-Wl,'
+    LINKER_OPTION_STYLE = ManyInOneLinkerOptionStyle('-Wl,', ',')
     id = 'g95'
 
     def __init__(self, exelist: T.List[str], version: str, for_machine: MachineChoice,
@@ -364,7 +373,7 @@ class G95FortranCompiler(FortranCompiler):
 
 class SunFortranCompiler(FortranCompiler):
 
-    LINKER_PREFIX = '-Wl,'
+    LINKER_OPTION_STYLE = ManyInOneLinkerOptionStyle('-Wl,', ',')
     id = 'sun'
 
     def get_dependency_gen_args(self, outtarget: str, outfile: str) -> T.List[str]:
@@ -434,7 +443,7 @@ class IntelFortranCompiler(IntelGnuLikeCompiler, FortranCompiler):
         return ['-gen-dep=' + outtarget, '-gen-depformat=make']
 
 
-class IntelLLVMFortranCompiler(IntelFortranCompiler):
+class IntelLLVMFortranCompiler(IntelLLVMLikeCompiler, IntelFortranCompiler):
 
     id = 'intel-llvm'
 

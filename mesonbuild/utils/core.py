@@ -12,7 +12,6 @@ as possible for performance reasons.
 from __future__ import annotations
 from dataclasses import dataclass
 import os
-import abc
 import typing as T
 
 if T.TYPE_CHECKING:
@@ -20,6 +19,7 @@ if T.TYPE_CHECKING:
     from typing_extensions import Literal
     from ..mparser import BaseNode
     from .. import programs
+    from .universal import SubProject
 
     EnvironOrDict = T.Union[T.Dict[str, str], os._Environ[str]]
 
@@ -53,9 +53,13 @@ class MesonBugException(MesonException):
         super().__init__(msg + '\n\n    This is a Meson bug and should be reported!',
                          file=file, lineno=lineno, colno=colno)
 
-class HoldableObject(metaclass=abc.ABCMeta):
+class HoldableObject:
     ''' Dummy base class for all objects that can be
         held by an interpreter.baseobjects.ObjectHolder '''
+    def __new__(cls, *args: T.Any, **kwargs: T.Any) -> HoldableObject:
+        if cls is HoldableObject:
+            raise TypeError(f"Can't instantiate abstract class {cls.__name__}")
+        return super().__new__(cls)
 
 class EnvironmentVariables(HoldableObject):
     def __init__(self, values: T.Optional[EnvInitValueType] = None,
@@ -167,5 +171,5 @@ class ExecutableSerialisation:
     def __post_init__(self) -> None:
         self.pickled = False
         self.skip_if_destdir = False
-        self.subproject = ''
+        self.subproject = T.cast('SubProject', '')  # avoid circular import
         self.dry_run = False

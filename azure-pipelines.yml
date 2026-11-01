@@ -66,20 +66,6 @@ jobs:
           compiler: msvc2022
           backend: ninja
           ifort: true
-        vc2022x64vs:
-          arch: x64
-          compiler: msvc2022
-          backend: vs2022
-          # mysteriously, several tests fail because vs cannot find
-          # executables such as cmd.exe ???
-          ifort: false
-        vc2022arm64ninjacross:
-          arch: arm64
-          compiler: msvc2022
-          backend: ninja
-          extraargs: --cross arm64cl.txt --cross-only
-          # ifort doesn't support arm64
-          ifort: false
 
   steps:
   - task: Cache@2
@@ -94,11 +80,11 @@ jobs:
   - bash: ci/intel-scripts/cache_exclude_windows.sh
     displayName: exclude unused files from cache
     condition: and(ne(variables.CACHE_RESTORED, 'true'), eq(variables.ifort, 'true'))
-  - script: choco install -y nasm
-    displayName: install NASM
+  - script: choco install -y nasm winflexbison3
+    displayName: install Chocolatey Dependencies
   - task: UsePythonVersion@0
     inputs:
-      versionSpec: '3.7'
+      versionSpec: '3.10'
       addToPath: true
       architecture: 'x64'
   - task: BatchScript@1
