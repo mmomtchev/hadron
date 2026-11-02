@@ -17,7 +17,7 @@ pkgs=(
   llvm lcov
   dub ldc
   mingw-w64 mingw-w64-tools libz-mingw-w64-dev
-  libclang-dev
+  libclang-dev libclang-rt-dev
   libgcrypt20-dev
   libgpgme-dev
   libhdf5-dev
@@ -48,6 +48,18 @@ eatmydata apt-get -y build-dep meson
 # packages
 eatmydata apt-get -y install "${pkgs[@]}" "${transitivepkgs[@]}"
 eatmydata apt-get -y install --no-install-recommends wine  # Wine is special
+
+# Initialize the wine prefix now, at image-build time, while nothing else is
+# using wine concurrently. If left uninitialized, `wine` lazily creates
+# ~/.wine on first use. We run tests concurrently , and several of them can race
+# to bootstrap ~/.wine for the first time simultaneously, causing wine to
+# intermittently fail with:
+#
+#   wine client error:0: recvmsg: Connection reset by peer
+#
+# causing spurious "Executables created by <compiler> are not runnable"
+# sanity check failures.
+WINEDEBUG=-all wine wineboot --init
 
 # HACK: build hotdoc from git repo since current sdist is broken on modern compilers
 # change back to 'hotdoc' once it's fixed
