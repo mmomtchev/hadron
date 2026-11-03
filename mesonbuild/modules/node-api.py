@@ -117,6 +117,7 @@ class NapiModule(ExtensionModule):
         self.napi_dir: Path = None
         self.napi_includes: Path = None
         self.napi_lib: Path = None
+        self.node_exe: ExternalProgram = None
         self.source_root: Path = Path(interpreter.environment.get_source_dir())
         self.load_node_process()
         self.download_headers()
@@ -128,6 +129,15 @@ class NapiModule(ExtensionModule):
             'extension_module': self.extension_module_method,
             'test': self.test_method,
         })
+        self.node_exe = ExternalProgram('node')
+        self.pkg_info = None
+        try:
+            package_json_path = Path(self.interpreter.environment.get_source_dir()) / 'package.json'
+            with open(package_json_path, encoding='utf-8') as package_json:
+                self.pkg_info = json.load(package_json)
+                mlog.log('Project package.json:', mlog.bold(str(package_json_path)))
+        except Exception:
+            mlog.warning('No valid package.json found')
 
     def parse_node_json_output(self, code: str) -> Any:
         result: Any = None
@@ -253,10 +263,12 @@ class NapiModule(ExtensionModule):
                 self.download_item(url, self.napi_dir)
                 self.napi_lib = self.napi_dir / os.path.basename(urllib.parse.urlparse(url).path)
 
-        mlog.log('Node.js library distribution: ', mlog.bold(str(self.napi_dir)))
+        mlog.log('Node.js library distribution:', mlog.bold(str(self.napi_dir)))
 
     # Transform path to relative if it is inside the project subdir
     # Use ../.. if it is relative to the project root, but not the project subdir
+    # This is a specific feature for Node.js because node_modules can be
+    # both inside the project and outside depending on the installation type
     def relativize(self, p: T.Union[str, Path], source_dir: Path) -> Path:
         r: Path = p if isinstance(p, Path) else Path(p)
         if mesonlib.path_is_in_root(r, source_dir, resolve=True):
@@ -349,6 +361,13 @@ class NapiModule(ExtensionModule):
             napi_includes = IncludeDirs(str(source_dir), [str(self.relativize(self.napi_includes, source_dir))], True, state.current_build_project)
             kwargs.setdefault('include_directories', []).extend([napi_includes])
 
+        # Set the project version from the package.json unless the user
+        # has overriden it
+        if self.interpreter.project_version == 'undefined' and self.pkg_info is not None:
+            if 'version' in self.pkg_info:
+                self.interpreter.project_version = self.pkg_info['version']
+                mlog.log('Project version set from package.json:', mlog.bold(self.interpreter.project_version))
+
         return self.interpreter.build_target(state.current_node, args, kwargs, SharedModule)
 
     @typed_pos_args('node_api.test', str, (str, mesonlib.File), (SharedModule, mesonlib.File))
@@ -364,6 +383,9 @@ class NapiModule(ExtensionModule):
         test_name = args[0]
         script = args[1]
         addon = args[2]
+
+        if not self.node_exe.found():
+            raise mesonlib.MesonException('node executable not found')
 
         node_script: mesonlib.File = None
         if isinstance(script, mesonlib.File):
@@ -389,7 +411,7 @@ class NapiModule(ExtensionModule):
 
         kwargs.setdefault('args', []).insert(0, node_script)
 
-        self.interpreter.add_test(state.current_node, (test_name, ExternalProgram('node')), kwargs, True)
+        self.interpreter.add_test(state.current_node, (test_name, self.node_exe), kwargs, True)
 
 def initialize(interpreter: 'Interpreter') -> NapiModule:
     mod = NapiModule(interpreter)
